@@ -12,6 +12,12 @@ This file holds the rules and the player's decisions with their reasons. Update 
 - Report honestly: what was measured, what only the phone can confirm, what was not tested.
 - Show the result: a screenshot or a short video of every visible change.
 
+## The player's decisions so far
+- Inspired by DOGWALK (Blender Studio): keep its look and juice, but our own game. Their CC BY assets are NOT used; we build our own paper-craft look (option "A").
+- A leash pair: a big anthro animal leads a little one. For now a wolf (hero) and a fox kit (the player said "take popular furry species").
+- Setting: winter mountains. NPCs: not decided yet.
+- Character models: the code-built ones in `scripts/critter.gd` are a placeholder the player rejected ("ugly"). Source of real models is being decided (Blender / ready models / an artist).
+
 ## Git
 - Push straight to `main` (no branches, no pull requests): `git fetch origin main`, `git rebase FETCH_HEAD`, `git push origin HEAD:main`.
 - Author: `MrKrob00 <170074121+MrKrob00@users.noreply.github.com>`. Never put a private e-mail into the repository.
