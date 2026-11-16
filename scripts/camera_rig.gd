@@ -3,7 +3,7 @@ extends Node3D
 ## High three-quarter camera that floats after the pair. It never turns.
 
 const PITCH_DEG := 52.0
-const DISTANCE := 11.0
+const DISTANCE := 8.0
 const FOV := 40.0
 
 var target: Node3D       ## the wolf

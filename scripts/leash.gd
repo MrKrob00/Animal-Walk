@@ -3,7 +3,7 @@ extends MeshInstance3D
 ## A soft rope between two hands: verlet points, drawn as a thin ribbon facing the camera.
 
 const POINTS := 16
-const WIDTH := 0.035
+const WIDTH := 0.02
 const GRAVITY := Vector3(0, -9.8, 0)
 
 var a: Node3D          ## anchor at one end (the wolf's hand)
