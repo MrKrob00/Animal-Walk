@@ -6,17 +6,40 @@ extends Node3D
 signal footstep(pos: Vector3, size: float)
 
 ## Chobby Bun: the hero (rigify deform bones from the Sketchfab file).
+## Her deform bones hang from rigify's helper bones, which nothing moves here, so the legs,
+## arms, head, chest and fingers are re-hung under the spine and the hands ("reparent").
 const BUNNY := {
 	"path": "res://assets/free_download_-_chobby_bun.glb", "height": 1.6,
 	"walk": 1.5, "run": 3.4, "stride": 1.15, "radius": 0.3,
 	"bones": {
+		"pelvis": "DEF-spine", "spine": ["DEF-spine.001", "DEF-spine.002", "DEF-spine.003"],
+		"neck": "DEF-neck", "head": "DEF-head",
 		"thigh_l": "DEF-thigh.L", "shin_l": "DEF-shin.L", "foot_l": "DEF-foot.L",
 		"thigh_r": "DEF-thigh.R", "shin_r": "DEF-shin.R", "foot_r": "DEF-foot.R",
 		"upper_arm_l": "DEF-upper_arm.L", "forearm_l": "DEF-forearm.L",
 		"upper_arm_r": "DEF-upper_arm.R", "forearm_r": "DEF-forearm.R",
 		"hand_l": "DEF-hand.L", "hand_r": "DEF-hand.R",
 		"ears": ["DEF-ear01.L", "DEF-ear01.R"],
+		"tail": ["DEF-spine.004"],
 		"arms_down": true,
+		"fingers": {"finger": "DEF-f_%s.%02d.%s", "palm": "DEF-palm.%02d.%s", "thumb": "DEF-thumb.%02d.%s"},
+		"reparent": {
+			"DEF-thigh.L": "DEF-spine", "DEF-thigh.R": "DEF-spine",
+			"DEF-butt.L": "DEF-spine", "DEF-butt.R": "DEF-spine", "DEF-spine.004": "DEF-spine",
+			"DEF-shoulder.L": "DEF-spine.003", "DEF-shoulder.R": "DEF-spine.003",
+			"DEF-upper_arm.L": "DEF-spine.003", "DEF-upper_arm.R": "DEF-spine.003",
+			"DEF-peck.B.L": "DEF-spine.003", "DEF-peck.B.R": "DEF-spine.003",
+			"DEF-peck.U.L": "DEF-spine.003", "DEF-peck.U.R": "DEF-spine.003",
+			"DEF-breast01.L": "DEF-spine.003", "DEF-breast01.R": "DEF-spine.003",
+			"DEF-neck": "DEF-spine.003",
+			"DEF-ear01.L": "DEF-head", "DEF-ear01.R": "DEF-head",
+			"DEF-palm.01.L": "DEF-hand.L", "DEF-palm.02.L": "DEF-hand.L", "DEF-palm.03.L": "DEF-hand.L", "DEF-palm.04.L": "DEF-hand.L",
+			"DEF-f_index.01.L": "DEF-hand.L", "DEF-f_middle.01.L": "DEF-hand.L", "DEF-f_ring.01.L": "DEF-hand.L",
+			"DEF-f_pinky.01.L": "DEF-hand.L", "DEF-thumb.01.L": "DEF-hand.L",
+			"DEF-palm.01.R": "DEF-hand.R", "DEF-palm.02.R": "DEF-hand.R", "DEF-palm.03.R": "DEF-hand.R", "DEF-palm.04.R": "DEF-hand.R",
+			"DEF-f_index.01.R": "DEF-hand.R", "DEF-f_middle.01.R": "DEF-hand.R", "DEF-f_ring.01.R": "DEF-hand.R",
+			"DEF-f_pinky.01.R": "DEF-hand.R", "DEF-thumb.01.R": "DEF-hand.R",
+		},
 	},
 	"hand": "DEF-hand.R",
 	"hide": ["Icosphere"],
@@ -27,6 +50,7 @@ const TOFU := {
 	"path": "res://assets/tofu_rigged.glb", "height": 1.1,
 	"walk": 1.6, "run": 3.8, "stride": 0.85, "radius": 0.25,
 	"bones": {
+		"pelvis": "hips", "spine": ["spine", "chest"], "neck": "neck", "head": "head",
 		"thigh_l": "thigh.L", "shin_l": "shin.L", "foot_l": "foot.L",
 		"thigh_r": "thigh.R", "shin_r": "shin.R", "foot_r": "foot.R",
 		"upper_arm_l": "upper_arm.L", "forearm_l": "forearm.L",
@@ -145,11 +169,15 @@ func place(p: Vector3, delta: float) -> void:
 
 
 func _process(delta: float) -> void:
-	if skeleton == null:
-		return
-	gait.lean = extra_lean
-	var landed := gait.update(delta, speed)
-	body.position.y = gait.bob(speed) * float(data.height)
-	body.rotation.x = lerpf(body.rotation.x, gait.body_lean(speed), 1.0 - exp(-8.0 * delta))
+	if skeleton != null:
+		animate(delta, speed)
+
+
+## Poses the body for this frame at `spd` m/s (also used by the view tools).
+func animate(delta: float, spd: float) -> void:
+	gait.lean = lerpf(gait.lean, extra_lean, 1.0 - exp(-6.0 * delta))
+	var landed := gait.update(delta, spd)
+	body.position.y = gait.bob() * float(data.height)
+	body.rotation.x = lerpf(body.rotation.x, gait.body_lean(), 1.0 - exp(-8.0 * delta))
 	if landed != 0:
 		footstep.emit(gait.foot_position(landed > 0), float(data.height) / 1.6)

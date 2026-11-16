@@ -18,7 +18,9 @@ This file holds the rules and the player's decisions with their reasons. Update 
 - Control (the player's rule): while the bunny holds the leash, the player steers TOFU. The action button makes the bunny hammer a stake in and tie the leash to it: now the player steers the bunny. Next to the stake (1.4 m) the button pulls it out and control goes back to TOFU.
   - My defaults, not yet confirmed by the player: TOFU just stands and watches the bunny while tied; run = stick pushed far or Shift; leash 3 m; heights bunny 1.6 m, TOFU 1.1 m; camera 8 m away at 52 degrees.
 - Setting: winter mountains.
-- Animations: the files have no usable walk/run clips (Chobby's own clip tears the mesh), so `scripts/gait.gd` turns the leg, arm, tail and ear bones in code; the step follows the real speed. Chobby's rest pose has an arm up at the face: Gait lowers the arms first ("arms_down").
+- Animations: the files have no usable walk/run clips (Chobby's own clip tears the mesh), so `scripts/gait.gd` poses the bones in code; the step follows the smoothed real speed. Pelvis sways and twists, chest twists back, head keeps level, nods and looks (at the partner, or around when idle), ears and tail on springs, breathing, the bunny's hand reaches for the leash (straight when it pulls), three hammer strikes for the stake.
+  - Chobby's deform bones hung from rigify helper bones that nothing moves: `reparent` in `Actor.BUNNY` re-hangs legs, arms, neck, chest and fingers under the spine and hands (no bone moves). The chest is rigid with the spine: no bouncing (the player complained about it).
+  - Chobby's rest pose shows a V-sign with an arm at the face: Gait lowers the arms ("arms_down") and relaxes the fingers ("fingers").
 - Models (Sketchfab unless said; all CC BY; credits in CREDITS.md). Free models only; no paid packs.
   - Hero: Chobby Bun (af9401a3403a425eae680924e8daef79) by Bom39.
   - On the leash: TOFU (75f3298a59804d3baa3d7fb9c3b5992f) by nottodayrender, concept by Luxjii. The model is CC BY, but the character design is Luxjii's and her permission is not stated; the player knows the risk and chose to use it with credit to both. It came without a skeleton: `tools/blender/rig_tofu.py` rigs it into `assets/tofu_rigged.glb`.
@@ -40,7 +42,7 @@ This file holds the rules and the player's decisions with their reasons. Update 
 ## Running Godot here
 - Godot 4.8 beta 1 (standard, not .NET). Headless tests: `godot --headless --path . --script tests/<suite>.gd`.
 - Blender 5.2 lives in `/opt/blender` (install it again in a fresh container; the player allowed it). Scripts in `tools/blender/`.
-- Model checks: `tools/inspect_models.gd` (bones, clips, triangles), `tools/lineup.gd` (all models side by side), `tools/gait_view.gd` (side view of the walk/run), `tools/shot.gd` (scripted play, screenshots; add `--write-movie x.png --fixed-fps 30` for a video).
+- Model checks: `tools/inspect_models.gd` (bones, clips, triangles), `tools/lineup.gd` (all models side by side), `tools/pose_view.gd` (idle/walk/run poses, front or side), `tools/shot.gd` (scripted play, screenshots; add `--write-movie x.png --fixed-fps 30` for a video).
 - Pictures need a screen: `xvfb-run -a -s "-screen 0 1920x1080x24" godot --path . --rendering-driver opengl3 --script <script>` (headless draws nothing).
 - Tests are small and check one thing each; every feature gets a test.
 
