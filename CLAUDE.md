@@ -20,7 +20,7 @@ This file holds the rules and the player's decisions with their reasons. Update 
 - Models picked from Sketchfab (all CC BY, credit in CREDITS.md when added):
   - NPCs: Border Collie Scientist (76bbf1fdc7e44a7fa1d7ddf1b6860271), Farmer Dog (d7bfa8ca8bdd4df08562099ea605d1f2), Otter-Chan (3b3800d3fe4143c882dde553f9005666) — all by AKM; Stylized Bunny (7c3f75fb982d41958f1759ed1b3f1f38) and Stylized Deer (0dfcaeec76d64678af59e4952a9f2762) by hugannh3. Jacob the fox (jupifox, itch.io) is allowed as an NPC too.
   - Hero: maybe Chobby Bun (af9401a3403a425eae680924e8daef79), not final.
-  - On the leash: still searching; fallback is Stylized Deer.
+  - On the leash: TOFU, stylized fox (75f3298a59804d3baa3d7fb9c3b5992f) by nottodayrender, concept by Luxjii. The model is CC BY, but the character design is Luxjii's and her permission is not stated; the player knows the risk and chose to use it with credit to both. Not rigged: needs a rig and animations.
   - Never: fan-art of other studios' characters, AI-generated models, 18+.
   - Free models only (the player said so); no paid packs.
 
