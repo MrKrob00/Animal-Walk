@@ -10,7 +10,7 @@ signal footstep(pos: Vector3, size: float)
 ## arms, head, chest and fingers are re-hung under the spine and the hands ("reparent").
 const BUNNY := {
 	"path": "res://assets/free_download_-_chobby_bun.glb", "height": 1.6,
-	"walk": 1.5, "run": 3.4, "stride": 1.15, "radius": 0.3,
+	"walk": 1.5, "run": 3.4, "stride": 1.45, "run_stride": 2.5, "radius": 0.3,
 	"bones": {
 		"pelvis": "DEF-spine", "spine": ["DEF-spine.001", "DEF-spine.002", "DEF-spine.003"],
 		"neck": "DEF-neck", "head": "DEF-head",
@@ -21,6 +21,7 @@ const BUNNY := {
 		"hand_l": "DEF-hand.L", "hand_r": "DEF-hand.R",
 		"ears": ["DEF-ear01.L", "DEF-ear01.R"],
 		"tail": ["DEF-spine.004"],
+		"soft": [["DEF-breast01.L", "DEF-breast04.L"], ["DEF-breast01.R", "DEF-breast04.R"]],
 		"arms_down": true,
 		"fingers": {"finger": "DEF-f_%s.%02d.%s", "palm": "DEF-palm.%02d.%s", "thumb": "DEF-thumb.%02d.%s"},
 		"reparent": {
@@ -48,7 +49,7 @@ const BUNNY := {
 ## TOFU: the red panda on the leash (rig made by tools/blender/rig_tofu.py).
 const TOFU := {
 	"path": "res://assets/tofu_rigged.glb", "height": 1.1,
-	"walk": 1.6, "run": 3.8, "stride": 0.85, "radius": 0.25,
+	"walk": 1.6, "run": 3.8, "stride": 1.1, "run_stride": 2.0, "radius": 0.25,
 	"bones": {
 		"pelvis": "hips", "spine": ["spine", "chest"], "neck": "neck", "head": "head",
 		"thigh_l": "thigh.L", "shin_l": "shin.L", "foot_l": "foot.L",
@@ -98,6 +99,8 @@ func _ready() -> void:
 	if skeleton != null:
 		gait.setup(skeleton, data.bones, body)
 		gait.stride = data.stride
+		gait.run_stride = data.run_stride
+		gait._height_hint = float(data.height)
 		gait.walk_speed = data.walk
 		gait.run_speed = data.run
 

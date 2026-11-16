@@ -7,7 +7,8 @@ extends RefCounted
 ## each bone's frame, so bone roll and file axes do not matter.
 
 var skeleton: Skeleton3D
-var stride := 1.0          ## metres covered by one full cycle (two steps)
+var stride := 1.0          ## metres covered by one walking cycle (two steps)
+var run_stride := 2.0      ## metres covered by one running cycle (longer strides, calmer cadence)
 var walk_speed := 1.5      ## m/s at which the walk is at full swing
 var run_speed := 3.5       ## m/s at which the run is at full swing
 var phase := 0.0
@@ -28,6 +29,7 @@ var _hold := 0.0           ## smoothed 0..1: the hand is on the leash
 var _hammer := -1.0        ## time into the hammering, or < 0
 var _ears := []            ## springs: [pitch, yaw] per ear
 var _tail := []            ## springs per tail bone
+var _soft := []            ## soft parts: [root bone, tip bone, mass pos, mass vel, ready, last anchor]
 var _look := Spring.new()
 var _twitch := 2.0
 var _rng := RandomNumberGenerator.new()
@@ -63,7 +65,7 @@ func setup(skel: Skeleton3D, map: Dictionary, body: Node3D) -> void:
 	for child in map.get("reparent", {}):
 		reparent_bone(skel, child, map.reparent[child])
 	for role in map:
-		if not (map[role] is Array or map[role] is String):
+		if role == "soft" or not (map[role] is Array or map[role] is String):
 			continue
 		var names: Array = map[role] if map[role] is Array else [map[role]]
 		var ids := []
@@ -79,6 +81,12 @@ func setup(skel: Skeleton3D, map: Dictionary, body: Node3D) -> void:
 		_ears.append([Spring.new(), Spring.new()])
 	for t in _ids("tail"):
 		_tail.append(Spring.new())
+	for pair in map.get("soft", []):
+		var root := find_bone(skel, pair[0])
+		var tip := find_bone(skel, pair[1])
+		if root >= 0 and tip >= 0:
+			_q[root] = skel.get_bone_rest(root).basis.get_rotation_quaternion()
+			_soft.append([root, tip, Vector3.ZERO, Vector3.ZERO, false, Vector3.ZERO])
 	if map.get("arms_down", false):
 		for s in [["l", 1.0], ["r", -1.0]]:
 			_arm_down(s[0], _side_sk * s[1])
@@ -155,7 +163,7 @@ func hammering() -> bool:
 func update(delta: float, measured: float) -> int:
 	_time += delta
 	speed = lerpf(speed, measured, 1.0 - exp(-7.0 * delta))
-	phase = fmod(phase + speed / stride * TAU * delta, TAU)
+	phase = fmod(phase + speed / _stride() * TAU * delta, TAU)
 	var yaw := _body.global_rotation.y if _body != null else 0.0
 	_turn = lerpf(_turn, angle_difference(_yaw_prev, yaw) / maxf(delta, 0.0001), 1.0 - exp(-6.0 * delta))
 	_yaw_prev = yaw
@@ -214,11 +222,11 @@ func update(delta: float, measured: float) -> int:
 	if _twitch <= 0.0:
 		_twitch = _rng.randf_range(2.5, 6.0)
 		twitch = _rng.randf_range(-40.0, 40.0)
-	var bob_acc := -cos(phase * 2.0) * (TAU * speed / stride) * 0.6
+	var bob_acc := -cos(phase * 2.0) * (TAU * speed / _stride()) * 0.6
 	var k := 0
 	for b in _ids("ears"):
 		var sp: Array = _ears[k]
-		var e_pitch: float = sp[0].step(-0.12 * w - 0.35 * r * w, delta, 7.0, 0.18, bob_acc * 0.4 + (twitch if k == 0 else 0.0))
+		var e_pitch: float = sp[0].step(-0.12 * w - 0.35 * r * w, delta, 5.0, 0.2, bob_acc * 0.4 + (twitch if k == 0 else 0.0))
 		var e_yaw: float = sp[1].step(clampf(-_turn * 0.12, -0.5, 0.5), delta, 6.0, 0.25)
 		_pose_bone(b, e_pitch, e_yaw, 0.0)
 		k += 1
@@ -226,12 +234,13 @@ func update(delta: float, measured: float) -> int:
 	k = 0
 	for b in _ids("tail"):
 		var drive := (0.3 * w * sin(phase) + 0.14 * idle * sin(_time * 1.3)) if k == 0 else prev
-		var t_yaw: float = _tail[k].step(drive - _turn * 0.08, delta, 8.0 - k, 0.3)
+		var t_yaw: float = _tail[k].step(drive - _turn * 0.08, delta, 6.0 - k, 0.3)
 		_pose_bone(b, -0.06 * w, t_yaw, 0.0)
 		prev = t_yaw
 		k += 1
 
 	_reach_for_leash(delta)
+	_soft_parts(delta)
 
 	var sign := 1 if s > 0.0 else -1
 	var landed := 0
@@ -239,6 +248,65 @@ func update(delta: float, measured: float) -> int:
 		landed = sign
 	_last_sign = sign
 	return landed
+
+
+func _stride() -> float:
+	var r := clampf((speed - walk_speed) / maxf(run_speed - walk_speed, 0.01), 0.0, 1.0)
+	return lerpf(stride, run_stride, r)
+
+
+## Soft parts (the chest) follow the body through a damped spring: a point mass is pulled
+## toward where the part's tip would be, lags behind each push, and settles after a stop.
+## The lag turns the part's root bone so its tip sits at the mass. Realistic, not exaggerated:
+## SOFT_FREQ / SOFT_DAMP / SOFT_MAX set how it moves.
+const SOFT_FREQ := 2.4     ## oscillations per second
+const SOFT_DAMP := 0.32    ## 0 = endless wobble, 1 = no overshoot
+const SOFT_MAX := 0.02     ## largest lag, as a share of the character's height
+
+func _soft_parts(delta: float) -> void:
+	if _soft.is_empty():
+		return
+	var to_sk := skeleton.global_transform.affine_inverse()
+	var w := TAU * SOFT_FREQ
+	var limit := SOFT_MAX * _height_hint
+	var steps := maxi(1, ceili(delta / (1.0 / 120.0)))
+	var dt := delta / steps
+	for part in _soft:
+		var root: int = part[0]
+		var tip: int = part[1]
+		skeleton.set_bone_pose_rotation(root, _q[root])
+		var g_root := skeleton.get_bone_global_pose(root)
+		var anchor := skeleton.global_transform * skeleton.get_bone_global_pose(tip).origin
+		if not part[4]:
+			part[2] = anchor
+			part[3] = Vector3.ZERO
+			part[4] = true
+			part[5] = anchor
+		var x: Vector3 = part[2]
+		var v: Vector3 = part[3]
+		var from: Vector3 = part[5]
+		var v_anchor := (anchor - from) / maxf(delta, 0.0001)
+		part[5] = anchor
+		# Damping acts on the motion relative to the body: steady walking leaves no lag,
+		# only pushes (steps, starts, stops, turns) do.
+		for i in steps:
+			var a_now := from.lerp(anchor, float(i + 1) / steps)
+			v += (w * w * (a_now - x) - 2.0 * SOFT_DAMP * w * (v - v_anchor)) * dt
+			x += v * dt
+		var lag := (x - anchor).limit_length(limit)
+		x = anchor + lag
+		part[2] = x
+		part[3] = v
+		var base := (to_sk * anchor) - g_root.origin
+		var moved := (to_sk * x) - g_root.origin
+		if base.length() < 1e-6:
+			continue
+		var q := _arc(base.normalized(), moved.normalized())
+		var gb := g_root.basis.orthonormalized()
+		skeleton.set_bone_pose_rotation(root, _q[root] * Quaternion(gb.inverse() * Basis(q) * gb))
+
+
+var _height_hint := 1.6    ## character height in metres (set by the actor)
 
 
 ## Vertical bob of the whole body, metres per metre of height: low when a foot lands.
