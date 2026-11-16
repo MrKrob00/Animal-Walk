@@ -22,6 +22,7 @@ This file holds the rules and the player's decisions with their reasons. Update 
   - Hero: maybe Chobby Bun (af9401a3403a425eae680924e8daef79), not final.
   - On the leash: still searching; fallback is Stylized Deer.
   - Never: fan-art of other studios' characters, AI-generated models, 18+.
+  - Free models only (the player said so); no paid packs.
 
 ## Git
 - Push straight to `main` (no branches, no pull requests): `git fetch origin main`, `git rebase FETCH_HEAD`, `git push origin HEAD:main`.
