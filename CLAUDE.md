@@ -16,7 +16,12 @@ This file holds the rules and the player's decisions with their reasons. Update 
 - Inspired by DOGWALK (Blender Studio): keep its look and juice, but our own game. Their CC BY assets are NOT used; we build our own paper-craft look (option "A").
 - A leash pair: a big anthro animal leads a little one. For now a wolf (hero) and a fox kit (the player said "take popular furry species").
 - Setting: winter mountains. NPCs: not decided yet.
-- Character models: the code-built ones in `scripts/critter.gd` are a placeholder the player rejected ("ugly"). Source of real models is being decided (Blender / ready models / an artist).
+- Character models: the code-built ones in `scripts/critter.gd` are a placeholder the player rejected ("ugly"). Not low-poly: medium quality is fine.
+- Models picked from Sketchfab (all CC BY, credit in CREDITS.md when added):
+  - NPCs: Border Collie Scientist (76bbf1fdc7e44a7fa1d7ddf1b6860271), Farmer Dog (d7bfa8ca8bdd4df08562099ea605d1f2), Otter-Chan (3b3800d3fe4143c882dde553f9005666) — all by AKM; Stylized Bunny (7c3f75fb982d41958f1759ed1b3f1f38) and Stylized Deer (0dfcaeec76d64678af59e4952a9f2762) by hugannh3. Jacob the fox (jupifox, itch.io) is allowed as an NPC too.
+  - Hero: maybe Chobby Bun (af9401a3403a425eae680924e8daef79), not final.
+  - On the leash: still searching; fallback is Stylized Deer.
+  - Never: fan-art of other studios' characters, AI-generated models, 18+.
 
 ## Git
 - Push straight to `main` (no branches, no pull requests): `git fetch origin main`, `git rebase FETCH_HEAD`, `git push origin HEAD:main`.
