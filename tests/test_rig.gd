@@ -21,7 +21,7 @@ func _run() -> void:
 	var parent_of := func(n: String) -> String: return sk.get_bone_name(sk.get_bone_parent(Gait.find_bone(sk, n)))
 	Check.ok(parent_of.call("DEF-thigh.L").begins_with("DEF-spine_"), "the leg hangs from the pelvis")
 	Check.ok(parent_of.call("DEF-neck").begins_with("DEF-spine.003"), "the neck hangs from the chest")
-	Check.ok(parent_of.call("DEF-breast01.L").begins_with("DEF-spine.003"), "the chest moves with the spine, no bouncing")
+	Check.ok(parent_of.call("DEF-breast01.L").begins_with("DEF-spine.003"), "the chest is carried by the spine")
 	Check.ok(parent_of.call("DEF-f_index.01.R").begins_with("DEF-hand.R"), "the fingers hang from the hand")
 	var still := true
 	for n in before:
@@ -39,6 +39,11 @@ func _run() -> void:
 	for i in 60:
 		a.animate(0.016, 0.0)
 	Check.ok(sk.get_bone_pose_rotation(ua).angle_to(free_arm) > 0.3, "the hand reaches for the leash")
+	var sh: Vector3 = sk.global_transform * sk.get_bone_global_pose(ua).origin
+	var wr: Vector3 = sk.global_transform * sk.get_bone_global_pose(Gait.find_bone(sk, "DEF-hand.R")).origin
+	Check.ok((wr - sh).angle_to(a.gait.hold_target - sh) < 0.3, "a taut leash points the arm at it")
+	var fi := Gait.find_bone(sk, "DEF-f_index.02.R")
+	Check.ok(sk.get_bone_pose_rotation(fi).angle_to(a.gait._q[fi]) > 0.3, "the fingers close around the leash")
 	a.gait.hold_target = Vector3.INF
 	a.gait.hammer()
 	Check.ok(a.gait.hammering(), "the hammering starts")

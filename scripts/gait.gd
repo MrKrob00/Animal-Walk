@@ -26,6 +26,9 @@ var _last_sign := 0
 var _yaw_prev := 0.0
 var _turn := 0.0           ## smoothed turning rate, rad/s
 var _hold := 0.0           ## smoothed 0..1: the hand is on the leash
+var _pull := 0.0           ## smoothed hold_pull
+var _hold_point := Vector3.ZERO
+var _grip := []            ## right-hand finger bones: [bone, curl axis in the bone frame]
 var _hammer := -1.0        ## time into the hammering, or < 0
 var _ears := []            ## springs: [pitch, yaw] per ear
 var _tail := []            ## springs per tail bone
@@ -259,9 +262,9 @@ func _stride() -> float:
 ## toward where the part's tip would be, lags behind each push, and settles after a stop.
 ## The lag turns the part's root bone so its tip sits at the mass. Realistic, not exaggerated:
 ## SOFT_FREQ / SOFT_DAMP / SOFT_MAX set how it moves.
-const SOFT_FREQ := 2.4     ## oscillations per second
-const SOFT_DAMP := 0.32    ## 0 = endless wobble, 1 = no overshoot
-const SOFT_MAX := 0.02     ## largest lag, as a share of the character's height
+const SOFT_FREQ := 2.0     ## oscillations per second
+const SOFT_DAMP := 0.27    ## 0 = endless wobble, 1 = no overshoot
+const SOFT_MAX := 0.024     ## largest lag, as a share of the character's height
 
 func _soft_parts(delta: float) -> void:
 	if _soft.is_empty():
@@ -361,25 +364,53 @@ func _look_yaw() -> float:
 	return (0.35 * sin(_time * 0.37) + 0.15 * sin(_time * 0.91 + 1.0)) * idle
 
 
-## The right hand reaches toward the leash; a taut leash pulls the arm straight.
+## The right hand holds the leash: two-bone IK puts the wrist on a point toward the leash.
+## Slack leash: the elbow is softly bent and the hand rides the steps; taut leash: the arm
+## straightens toward TOFU. The fingers close around the leash.
 func _reach_for_leash(delta: float) -> void:
 	_hold = lerpf(_hold, 1.0 if hold_target != Vector3.INF else 0.0, 1.0 - exp(-6.0 * delta))
+	_pull = lerpf(_pull, hold_pull, 1.0 - exp(-4.0 * delta))
+	for g in _grip:
+		var b: int = g[0]
+		skeleton.set_bone_pose_rotation(b, _q[b] * Quaternion(g[1], 0.55 * _hold))
 	var ua := _one("upper_arm_r")
 	var fa := _one("forearm_r")
 	var hand := _one("hand_r")
-	if _hold < 0.01 or ua < 0 or fa < 0 or hand < 0 or hold_target == Vector3.INF:
+	if _hold < 0.01 or ua < 0 or fa < 0 or hand < 0:
 		return
+	if hold_target != Vector3.INF:
+		_hold_point = hold_target
 	var to_sk := skeleton.global_transform.affine_inverse()
 	var g_ua := skeleton.get_bone_global_pose(ua)
 	var g_fa := skeleton.get_bone_global_pose(fa)
-	var cur := (g_fa.origin - g_ua.origin).normalized()
-	var want := ((to_sk * hold_target) - g_ua.origin).normalized()
-	var down := (-_up_sk + _fwd_sk * 0.35).normalized()
-	var aim := down.slerp(want, clampf(0.25 + 0.6 * hold_pull, 0.0, 0.85)).normalized()
-	var q := Quaternion(_arc(cur, aim)).slerp(Quaternion.IDENTITY, 1.0 - _hold)
-	var gb := g_ua.basis.orthonormalized()
-	var extra := Quaternion(gb.inverse() * Basis(q) * gb)
-	skeleton.set_bone_pose_rotation(ua, skeleton.get_bone_pose_rotation(ua) * extra)
+	var g_h := skeleton.get_bone_global_pose(hand)
+	var sh := g_ua.origin
+	var el := g_fa.origin
+	var wr := g_h.origin
+	var l1 := (el - sh).length()
+	var l2 := (wr - el).length()
+	# Where the wrist goes: toward the leash, low and in front when slack, at reach when taut.
+	var to_leash := ((to_sk * _hold_point) - sh).normalized()
+	var rest_dir := (-_up_sk + _fwd_sk * 0.3 - _side_sk * 0.4).normalized()
+	var dir := rest_dir.slerp(to_leash, 0.12 + 0.8 * _pull).normalized()
+	var reach := (l1 + l2) * lerpf(0.9, 0.985, _pull)
+	var bounce := _up_sk * (l1 + l2) * 0.025 * sin(phase * 2.0) * clampf(speed / walk_speed, 0.0, 1.0)
+	var target := sh + dir * reach + bounce
+	target = wr.lerp(target, _hold)
+	# Two-bone IK: the elbow bends down, back and out.
+	var d := clampf((target - sh).length(), absf(l1 - l2) + 0.001, l1 + l2 - 0.001)
+	var u := (target - sh).normalized()
+	var pole := (-_up_sk - _fwd_sk * 0.5 - _side_sk * 0.6)
+	pole = (pole - u * pole.dot(u)).normalized()
+	var cos_a := clampf((l1 * l1 + d * d - l2 * l2) / (2.0 * l1 * d), -1.0, 1.0)
+	var el_new := sh + (u * cos_a + pole * sqrt(1.0 - cos_a * cos_a)) * l1
+	var q1 := _arc((el - sh).normalized(), (el_new - sh).normalized())
+	var gb1 := g_ua.basis.orthonormalized()
+	skeleton.set_bone_pose_rotation(ua, skeleton.get_bone_pose_rotation(ua) * Quaternion(gb1.inverse() * Basis(q1) * gb1))
+	var fa_now := q1 * (wr - el).normalized()
+	var q2 := _arc(fa_now, (sh + u * d - el_new).normalized())
+	var gb2 := (Basis(q1) * g_fa.basis.orthonormalized()).orthonormalized()
+	skeleton.set_bone_pose_rotation(fa, skeleton.get_bone_pose_rotation(fa) * Quaternion(gb2.inverse() * Basis(q2) * gb2))
 
 
 ## Base pose for models whose rest pose has the arms up: hang each arm down at the side,
@@ -443,6 +474,9 @@ func _relax_fingers(f: Dictionary, s: String) -> void:
 			var g := Basis(acc) * skeleton.get_bone_global_rest(b).basis.orthonormalized()
 			_q[b] = skeleton.get_bone_rest(b).basis.get_rotation_quaternion() * Quaternion(g.inverse() * Basis(q) * g)
 			skeleton.set_bone_pose_rotation(b, _q[b])
+			if s == "R":
+				var g_now := Basis(q) * g
+				_grip.append([b, (g_now.inverse() * dir.cross(normal)).normalized()])
 			acc = q * acc
 
 

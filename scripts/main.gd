@@ -66,7 +66,7 @@ func _ready() -> void:
 	leash = Leash.new()
 	leash.name = "Leash"
 	leash.a = _collar
-	leash.b = _hand
+	leash.reattach_b(_hand)
 	leash.length = LEASH_ROPE
 	add_child(leash)
 
@@ -102,7 +102,7 @@ func act() -> String:
 	match what:
 		"staked":
 			stake.hammer_in(spot)
-			leash.b = stake.top
+			leash.reattach_b(stake.top)
 			_busy = HAMMER_TIME
 			bunny.gait.hammer()
 			bunny.velocity = Vector3.ZERO
@@ -111,7 +111,7 @@ func act() -> String:
 			camera_rig.second = tofu
 		"picked":
 			stake.pull_out()
-			leash.b = _hand
+			leash.reattach_b(_hand)
 			camera_rig.target = tofu
 			camera_rig.second = bunny
 	return what

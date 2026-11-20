@@ -37,6 +37,20 @@ func reset(pa: Vector3, pb: Vector3) -> void:
 		_prev[i] = pts[i]
 
 
+## Moves one end to a new anchor without a whip: the rope is laid out again, at rest.
+func reattach_b(node: Node3D) -> void:
+	b = node
+	if a != null and b != null and is_inside_tree():
+		var pa := a.global_position
+		var pb := b.global_position
+		for i in range(POINTS):
+			var t := float(i) / (POINTS - 1)
+			var p := pa.lerp(pb, t)
+			p.y -= sin(t * PI) * 0.3   # a soft sag, as if it had been lying there
+			pts[i] = p
+			_prev[i] = p
+
+
 func simulate(delta: float, pa: Vector3, pb: Vector3) -> void:
 	var rest := length / (POINTS - 1)
 	for i in range(1, POINTS - 1):
