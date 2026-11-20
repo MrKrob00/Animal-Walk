@@ -20,19 +20,23 @@ func _run() -> void:
 	var b_arr := skin_mi.mesh.surface_get_arrays(0)
 	var t_v: PackedVector3Array = t_arr[Mesh.ARRAY_VERTEX]
 	var b_v: PackedVector3Array = b_arr[Mesh.ARRAY_VERTEX]
-	# The skin point under each top vertex (nearest, at rest), every 4th vertex.
+	# The skin under each top vertex (its six nearest skin points at rest), every 4th vertex.
 	var pairs := []
 	for i in range(0, t_v.size(), 4):
-		var best := -1
-		var bd := INF
+		var near := []
 		for j in b_v.size():
 			if _on_arm(skin_mi, b_arr, j):
 				continue
 			var d := t_v[i].distance_squared_to(b_v[j])
-			if d < bd:
-				bd = d
-				best = j
-		pairs.append([i, best])
+			if near.size() < 6 or d < near[-1][0]:
+				near.append([d, j])
+				near.sort_custom(func(x, y): return x[0] < y[0])
+				if near.size() > 6:
+					near.pop_back()
+		var ids := []
+		for n in near:
+			ids.append(n[1])
+		pairs.append([i, ids])
 	var rest := _gaps(sk, top, skin_mi, t_arr, b_arr, pairs)
 	var worst := 0.0
 	var all := []
@@ -46,7 +50,7 @@ func _run() -> void:
 				all.append(absf(now[k] - rest[k]))
 	all.sort()
 	var p95: float = all[int(all.size() * 0.95)]
-	# With the model's own weights: 20 mm and 57 mm.
+	# With the model's own top weights it was 20 mm and 57 mm (to the single nearest skin point).
 	Check.ok(p95 < 0.008, "running, the top stays on the skin (95%% of it within %.1f mm)" % (p95 * 1000.0))
 	Check.ok(worst < 0.02, "and nowhere pulls far off it (at most %.1f mm)" % (worst * 1000.0))
 	Check.finish(self)
@@ -66,13 +70,16 @@ func _on_arm(mi: MeshInstance3D, arr: Array, i: int) -> bool:
 
 
 
-## Distance (metres) from each top vertex to its skin point, both skinned.
+## Distance (metres) from each top vertex to the skin under it (the nearest of its skin points),
+## both skinned.
 func _gaps(sk: Skeleton3D, top: MeshInstance3D, body: MeshInstance3D, t_arr: Array, b_arr: Array, pairs: Array) -> Array:
 	var out := []
 	for p in pairs:
 		var tp := _skinned(sk, top, t_arr, p[0])
-		var bp := _skinned(sk, body, b_arr, p[1])
-		out.append(tp.distance_to(bp))
+		var best := INF
+		for j in p[1]:
+			best = minf(best, tp.distance_to(_skinned(sk, body, b_arr, j)))
+		out.append(best)
 	return out
 
 

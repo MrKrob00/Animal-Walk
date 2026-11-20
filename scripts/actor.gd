@@ -9,13 +9,14 @@ signal footstep(pos: Vector3, size: float)
 ## Her deform bones hang from rigify's helper bones, which nothing moves here, so the legs,
 ## arms, head, chest and fingers are re-hung under the spine and the hands ("reparent").
 const BUNNY := {
-	"path": "res://assets/free_download_-_chobby_bun.glb", "height": 1.6,
+	# Her T-posed model with a clean skeleton (tools/tpose_bunny.gd makes it from the Sketchfab file).
+	"path": "res://assets/chobby_tpose.glb", "height": 1.6,
 	"walk": 1.5, "run": 3.4, "stride": 1.45, "run_stride": 2.5, "radius": 0.3,
 	# Her top and shorts take the skin's bone weights, so no gap opens when the chest moves.
 	# The leash lies over these instead of passing through: [from bone, to bone, radius m, reach past "to" m].
 	"capsules": [["DEF-spine", "DEF-spine.003", 0.14, 0.05], ["DEF-thigh.L", "DEF-thigh.R", 0.07, 0.0]],
 	"cloth": {"body": "Object_11", "items": ["Object_670", "Object_672"],
-		"skip": ["DEF-upper_arm", "DEF-forearm", "DEF-hand", "DEF-f_", "DEF-thumb", "DEF-palm"]},
+		"skip": ["DEF-upper_arm", "DEF-forearm", "DEF-hand", "DEF-f_", "DEF-thumb", "DEF-palm"], "lift": 0.0},   # lifted off the skin when baked
 	"bones": {
 		"pelvis": "DEF-spine", "spine": ["DEF-spine.001", "DEF-spine.002", "DEF-spine.003"],
 		"neck": "DEF-neck", "head": "DEF-head",
@@ -125,7 +126,7 @@ func _ready() -> void:
 		for n in data.cloth.items:
 			var c: MeshInstance3D = scene.find_child(n, true, false)
 			if skin_mi != null and c != null:
-				SkinFit.follow_body(skin_mi, c, data.cloth.get("skip", []))
+				SkinFit.follow_body(skin_mi, c, data.cloth.get("skip", []), float(data.cloth.get("lift", SkinFit.INFLATE)))
 	var skels := scene.find_children("*", "Skeleton3D", true, false)
 	skeleton = skels[0] if skels.size() > 0 else null
 	_fit(float(data.height))

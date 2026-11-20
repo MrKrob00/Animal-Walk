@@ -13,7 +13,7 @@ const INFLATE := 0.012   ## the cloth stands this far off the skin (mesh units: 
 
 ## `skip`: bone name prefixes whose skin the cloth must not copy (an arm hanging against the
 ## top would otherwise drag the armhole along with it).
-static func follow_body(body: MeshInstance3D, cloth: MeshInstance3D, skip: Array = []) -> void:
+static func follow_body(body: MeshInstance3D, cloth: MeshInstance3D, skip: Array = [], lift := INFLATE) -> void:
 	if body.skin != cloth.skin or not body.transform.is_equal_approx(cloth.transform):
 		push_warning("SkinFit: %s and %s do not share a skin" % [body.name, cloth.name])
 		return
@@ -76,9 +76,9 @@ static func follow_body(body: MeshInstance3D, cloth: MeshInstance3D, skip: Array
 					bones[at] = 0
 					weights[at] = 0.0
 		var normals: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
-		if normals.size() == verts.size():
+		if normals.size() == verts.size() and lift != 0.0:
 			for v in verts.size():
-				verts[v] += normals[v] * INFLATE
+				verts[v] += normals[v] * lift
 			arr[Mesh.ARRAY_VERTEX] = verts
 		arr[Mesh.ARRAY_BONES] = bones
 		arr[Mesh.ARRAY_WEIGHTS] = weights

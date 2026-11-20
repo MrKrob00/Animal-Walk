@@ -18,11 +18,11 @@ func _run() -> void:
 	root.add_child(a)
 	await process_frame
 	var sk := a.skeleton
-	var parent_of := func(n: String) -> String: return sk.get_bone_name(sk.get_bone_parent(Gait.find_bone(sk, n)))
-	Check.ok(parent_of.call("DEF-thigh.L").begins_with("DEF-spine_"), "the leg hangs from the pelvis")
-	Check.ok(parent_of.call("DEF-neck").begins_with("DEF-spine.003"), "the neck hangs from the chest")
-	Check.ok(parent_of.call("DEF-breast01.L").begins_with("DEF-spine.003"), "the chest is carried by the spine")
-	Check.ok(parent_of.call("DEF-f_index.01.R").begins_with("DEF-hand.R"), "the fingers hang from the hand")
+	var hangs := func(n: String, p: String) -> bool: return sk.get_bone_parent(Gait.find_bone(sk, n)) == Gait.find_bone(sk, p)
+	Check.ok(hangs.call("DEF-thigh.L", "DEF-spine"), "the leg hangs from the pelvis")
+	Check.ok(hangs.call("DEF-neck", "DEF-spine.003"), "the neck hangs from the chest")
+	Check.ok(hangs.call("DEF-breast01.L", "DEF-spine.003"), "the chest is carried by the spine")
+	Check.ok(hangs.call("DEF-f_index.01.R", "DEF-hand.R"), "the fingers hang from the hand")
 	var still := true
 	for n in before:
 		var g: Transform3D = sk.get_bone_global_rest(Gait.find_bone(sk, n))

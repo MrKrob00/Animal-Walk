@@ -140,6 +140,9 @@ static func find_bone(skel: Skeleton3D, bone_name: String) -> int:
 	var b := skel.find_bone(bone_name)
 	if b >= 0:
 		return b
+	b = skel.find_bone(bone_name.replace(".", "_"))   # glTF import turns "." into "_"
+	if b >= 0:
+		return b
 	var re := RegEx.create_from_string("^" + _escape(bone_name) + "_\\d+$")
 	for i in skel.get_bone_count():
 		if re.search(skel.get_bone_name(i)) != null:

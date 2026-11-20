@@ -4,7 +4,7 @@ All models are used under Creative Commons Attribution 4.0 (CC BY 4.0): https://
 
 | Model | Author | Source | Changes |
 |---|---|---|---|
-| Chobby Bun (hero) | Bom39 | https://sketchfab.com/3d-models/af9401a3403a425eae680924e8daef79 | animated in code |
+| Chobby Bun (hero) | Bom39 | https://sketchfab.com/3d-models/af9401a3403a425eae680924e8daef79 | re-posed into a T-pose with a simplified skeleton, clothes re-weighted, animated in code |
 | TOFU (stylized fox character) | nottodayrender, concept by Luxjii | https://sketchfab.com/3d-models/75f3298a59804d3baa3d7fb9c3b5992f | backdrop removed, rigged, animated in code |
 | Border Collie Scientist | AKM | https://sketchfab.com/3d-models/76bbf1fdc7e44a7fa1d7ddf1b6860271 | — |
 | Farmer Dog | AKM | https://sketchfab.com/3d-models/d7bfa8ca8bdd4df08562099ea605d1f2 | — |

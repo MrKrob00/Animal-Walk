@@ -33,7 +33,7 @@ This file holds the rules and the player's decisions with their reasons. Update 
   - The step cadence was too fast for the player: strides are longer and grow with speed (bunny 1.45 m walking, 2.5 m running; TOFU 1.1 / 2.0).
   - Chobby's rest pose shows a V-sign with an arm at the face: Gait lowers the arms ("arms_down") and relaxes the fingers ("fingers": all three joints, the tip toward the real "_end" fingertip bone; otherwise the V-sign fingers stay straight).
 - Models (Sketchfab unless said; all CC BY; credits in CREDITS.md). Free models only; no paid packs.
-  - Hero: Chobby Bun (af9401a3403a425eae680924e8daef79) by Bom39.
+  - Hero: Chobby Bun (af9401a3403a425eae680924e8daef79) by Bom39. The game uses `assets/chobby_tpose.glb`, made by `tools/tpose_bunny.gd` from the Sketchfab file (the player asked for a T-pose and a clean skeleton): the 94 weighted deform bones (+ fingertip ends) joined into one hierarchy (104 bones instead of rigify's 658), posed into a T-pose (pelvis and shoulders level, spine and neck straight up seen from the front, head level by the ears, arms straight out, palms down, elbows back, fingers straight along the palm, legs straight down, feet flat and forward), the meshes baked in it (top and shorts following all the skin while baked) and written with that pose as the rest. The file's two blend shapes were broken (100x off, unused) and are left out. Godot's import turns "." in bone names into "_" (`Gait.find_bone` accepts both).
   - On the leash: TOFU (75f3298a59804d3baa3d7fb9c3b5992f) by nottodayrender, concept by Luxjii. The model is CC BY, but the character design is Luxjii's and her permission is not stated; the player knows the risk and chose to use it with credit to both. It came without a skeleton: `tools/blender/rig_tofu.py` rigs it into `assets/tofu_rigged.glb`.
   - NPCs: Border Collie Scientist, Farmer Dog, Otter-Chan (AKM); Stylized Bunny, Stylized Deer (hugannh3; furred, not nude); Jacob the fox (jupifox, itch.io). The collie and farmer dog .glb files are broken (Sketchfab's auto-conversion: the body is skinned 100x off); ask the player for the "Original format" downloads.
   - Never: fan-art of other studios' characters, AI-generated models, 18+.
@@ -53,6 +53,7 @@ This file holds the rules and the player's decisions with their reasons. Update 
 ## Running Godot here
 - Godot 4.8 beta 1 (standard, not .NET). Headless tests: `godot --headless --path . --script tests/<suite>.gd`.
 - Blender 5.2 lives in `/opt/blender` (install it again in a fresh container; the player allowed it). Scripts in `tools/blender/`.
+- Bunny model: `godot --headless --path . --script tools/tpose_bunny.gd`, then `godot --headless --path . --import` (rewrites `assets/chobby_tpose.glb`).
 - Model checks: `tools/inspect_models.gd` (bones, clips, triangles), `tools/lineup.gd` (all models side by side), `tools/walk_clip.gd` (side clip: walk, stop, run, stop; add `drag` as the 5th argument for a long dragged run and stop; with `--write-movie`), `tools/shot.gd` (scripted play, screenshots; add `--write-movie x.png --fixed-fps 30` for a video).
 - Pictures need a screen: `xvfb-run -a -s "-screen 0 1920x1080x24" godot --path . --rendering-driver opengl3 --script <script>` (headless draws nothing).
 - Tests are small and check one thing each; every feature gets a test.
