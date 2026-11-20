@@ -80,6 +80,8 @@ const TOFU := {
 	# A red leather collar with a brass ring at the front (the leash clips to the ring).
 	# Numbers are in the rig's own units (skeleton space of tofu_rigged.glb, Y up, +Z forward),
 	# measured from the neck: it is about 0.17 wide around y = 3.26.
+	# The leash lies over these instead of passing through: [from bone, to bone, radius m, reach past "to" m].
+	"capsules": [["hips", "chest", 0.16, 0.0], ["tail1", "tail3", 0.12, 0.3]],
 	"collar": {"bone": "neck", "center": Vector3(0, 3.28, 0.02), "radius": Vector2(0.2, 0.19),
 		"tube": 0.032, "tilt": 0.26, "color": "#c8333f", "ring": "#e2b84f"},
 	"hide": [],
@@ -167,6 +169,7 @@ func _feet_y() -> float:
 
 
 ## Builds the collar from data.collar on its bone; returns the ring the leash clips to.
+## The ring slides round the collar toward the leash (`aim_collar`), as a real one does.
 func add_collar() -> Node3D:
 	var c: Dictionary = data.collar
 	var bone := Gait.find_bone(skeleton, c.bone)
@@ -179,19 +182,76 @@ func add_collar() -> Node3D:
 	var r: Vector2 = c.radius
 	var st := PaperMesh.begin()
 	PaperMesh.torus(st, Transform3D(tilt.scaled(Vector3(r.x / r.y, 1.0, 1.0)), c.center), r.y, float(c.tube), 18, 6, PaperMesh.col(c.color))
-	var front: Vector3 = c.center + tilt * Vector3(0, -0.01, r.y + float(c.tube) * 1.6)
-	PaperMesh.torus(st, Transform3D(Basis(Vector3.RIGHT, PI * 0.5) * Basis(Vector3.FORWARD, 0.0), front), float(c.tube) * 1.25, float(c.tube) * 0.35, 10, 4, PaperMesh.col(c.ring))
 	var mi := MeshInstance3D.new()
 	mi.name = "Collar"
 	mi.mesh = PaperMesh.commit(st)
 	mi.material_override = PaperMesh.material()
 	ba.add_child(mi)
 	mi.transform = to_bone
+	# The ring, made at its own origin, standing across the collar.
+	var rs := PaperMesh.begin()
+	PaperMesh.torus(rs, Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3.ZERO), float(c.tube) * 1.25, float(c.tube) * 0.35, 10, 4, PaperMesh.col(c.ring))
+	_ring = MeshInstance3D.new()
+	_ring.name = "CollarRing"
+	_ring.mesh = PaperMesh.commit(rs)
+	_ring.material_override = PaperMesh.material()
+	ba.add_child(_ring)
 	var clip := Marker3D.new()
 	clip.name = "LeashRing"
-	ba.add_child(clip)
-	clip.transform = to_bone * Transform3D(Basis.IDENTITY, front + Vector3(0, -float(c.tube) * 1.2, float(c.tube) * 0.3))
+	_ring.add_child(clip)
+	clip.position = Vector3(0, -float(c.tube) * 1.2, float(c.tube) * 0.3)
+	_collar_frame = to_bone * Transform3D(tilt, c.center)
+	_ring_angle = 0.0
+	_place_ring()
 	return clip
+
+
+var _ring: MeshInstance3D
+var _collar_frame := Transform3D.IDENTITY   ## collar space (centre, tilted) -> bone attachment space
+var _ring_angle := 0.0                       ## round the collar from the front, + toward its left (+X)
+
+const RING_SLIDE := 6.0   ## how fast the ring slides round toward the leash (1/s)
+
+
+## Slides the collar's ring round toward `target` (world), e.g. the leash a little way along.
+func aim_collar(target: Vector3, delta: float) -> void:
+	if _ring == null or not is_instance_valid(_ring):
+		return
+	var to_collar: Transform3D = (_ring.get_parent() as Node3D).global_transform * _collar_frame
+	var q := to_collar.affine_inverse() * target
+	if Vector2(q.x, q.z).length() < 0.05:
+		return   # straight below or above the collar: no side to turn to
+	var want := atan2(q.x, q.z)
+	_ring_angle += wrapf(want - _ring_angle, -PI, PI) * (1.0 - exp(-RING_SLIDE * delta))
+	_place_ring()
+
+
+func _place_ring() -> void:
+	var c: Dictionary = data.collar
+	var r: Vector2 = c.radius
+	var out := float(c.tube) * 1.6
+	var t := _ring_angle
+	var pos := Vector3(sin(t) * (r.x + out), -0.01, cos(t) * (r.y + out))
+	_ring.transform = _collar_frame * Transform3D(Basis(Vector3.UP, t), pos)
+
+
+## The body's capsules in world space for the leash to lie over: [a, b, radius].
+func capsules() -> Array:
+	var out := []
+	for c in data.get("capsules", []):
+		var a := Gait.find_bone(skeleton, c[0])
+		var b := Gait.find_bone(skeleton, c[1])
+		if a < 0 or b < 0:
+			continue
+		var pa: Vector3 = skeleton.global_transform * skeleton.get_bone_global_pose(a).origin
+		var pb: Vector3 = skeleton.global_transform * skeleton.get_bone_global_pose(b).origin
+		pb += (pb - pa).normalized() * float(c[3])
+		out.append([pa, pb, float(c[2])])
+	return out
+
+
+func ring_angle() -> float:
+	return _ring_angle
 
 
 ## Node to hang a leash on: a bone of this model, with an offset in metres.

@@ -163,6 +163,9 @@ func _physics_process(delta: float) -> void:
 		tofu.steer(Vector3.ZERO, delta)
 		tofu.place(LeashRules.clamp_to(tofu.position, rules.stake_pos, LEASH_GROUND), delta)
 		tofu.face_target = bunny.position
+	leash.colliders = tofu.capsules()
+	# The collar's ring slides round toward the leash, so the rope leaves the neck on its side.
+	tofu.aim_collar(leash.pts[6] if leash.pts.size() > 6 else bunny.position, delta)
 	stake.set_hint(rules.can_pick(bunny.position), _time)
 	button.set_active(rules.steers_tofu() or rules.can_pick(bunny.position))
 

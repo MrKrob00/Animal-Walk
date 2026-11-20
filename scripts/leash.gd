@@ -2,7 +2,7 @@ class_name Leash
 extends MeshInstance3D
 ## A soft rope between two hands: verlet points, drawn as a thin ribbon facing the camera.
 
-const POINTS := 16
+const POINTS := 24
 const WIDTH := 0.02
 const SMOOTH_PASSES := 3
 const GRAVITY := Vector3(0, -9.8, 0)
@@ -11,6 +11,9 @@ var a: Node3D          ## anchor at one end (the wolf's hand)
 var b: Node3D          ## anchor at the other end (the kit's hand)
 var length := 3.6      ## rope length in 3D (a little slack over the walking limit)
 var use_ground := true
+## Bodies the rope lies over instead of passing through: [a, b, radius] capsules in world space,
+## set every frame by the game (TOFU's torso and tail).
+var colliders: Array = []
 
 var pts := PackedVector3Array()
 var _prev := PackedVector3Array()
@@ -74,6 +77,9 @@ func simulate(delta: float, pa: Vector3, pb: Vector3) -> void:
 					pts[i + 1] -= fix
 				else:
 					pts[i] += fix
+		for c in colliders:
+			for i in range(1, POINTS - 1):
+				pts[i] = push_out(pts[i], c[0], c[1], c[2])
 		if use_ground:
 			for i in range(1, POINTS - 1):
 				var g := maxf(Terrain.height(pts[i].x, pts[i].z), 0.0) + 0.03   # floats on the sea
@@ -81,6 +87,21 @@ func simulate(delta: float, pa: Vector3, pb: Vector3) -> void:
 					pts[i].y = g
 	pts[0] = pa
 	pts[POINTS - 1] = pb
+
+
+## `p` moved out of the capsule a-b of `radius` (unchanged if it is outside).
+static func push_out(p: Vector3, a: Vector3, b: Vector3, radius: float) -> Vector3:
+	var ab := b - a
+	var t := clampf((p - a).dot(ab) / maxf(ab.length_squared(), 1e-6), 0.0, 1.0)
+	var c := a + ab * t
+	var d := p - c
+	var l := d.length()
+	if l >= radius:
+		return p
+	if l < 1e-5:
+		d = Vector3.UP
+		l = 1.0
+	return c + d / l * radius
 
 
 func _physics_process(delta: float) -> void:

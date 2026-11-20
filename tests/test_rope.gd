@@ -36,5 +36,22 @@ func _run() -> void:
 		sharpest = maxf(sharpest, (line[i] - line[i - 1]).angle_to(line[i + 1] - line[i]))
 	var through := line[0].is_equal_approx(fold[0]) and line[line.size() - 1].is_equal_approx(fold[fold.size() - 1])
 	Check.ok(sharpest < deg_to_rad(40.0) and through, "the rope is drawn round, its ends in place (sharpest turn %.0f deg, the fold is 90)" % rad_to_deg(sharpest))
+	# A body between the ends: the rope lies over it, no point stays inside.
+	var over := Leash.new()
+	over.a = a
+	over.b = b
+	over.use_ground = false
+	root.add_child(over)
+	await process_frame
+	a.position = Vector3(0, 1, 0)
+	b.position = Vector3(2.4, 1, 0)
+	over.colliders = [[Vector3(1.2, 0.0, -0.5), Vector3(1.2, 0.0, 0.5), 0.45]]   # a log lying across, under the middle
+	for i in 240:
+		over.simulate(1.0 / 60.0, a.global_position, b.global_position)
+	var inside := 0
+	for p in over.pts:
+		if Leash.push_out(p, Vector3(1.2, 0.0, -0.5), Vector3(1.2, 0.0, 0.5), 0.45 - 0.005) != p:
+			inside += 1
+	Check.ok(inside == 0, "the rope lies over a body in its way, not through it (%d points inside)" % inside)
 	Check.ok(rope.pts[0].is_equal_approx(a.global_position), "its other end stays put")
 	Check.finish(self)
