@@ -388,7 +388,7 @@ func _stride() -> float:
 const SOFT_FREQ := 2.0     ## oscillations per second
 const SOFT_DAMP := 0.27    ## 0 = endless wobble, 1 = no overshoot
 const SOFT_MAX := 0.024     ## largest lag, as a share of the character's height
-const SOFT_FLOOR := 0.03  ## lying down, the chest's tip stays this share of her height above the ground
+const SOFT_FLOOR := 0.0   ## lying down, the chest's tip bone stays this share of her height above the ground (the skin gives: SoftPress)
 const SOFT_GAIN := 0.6     ## share of the spring's lag shown: the clips swing the body three times
                            ## more than the old walk did, this keeps the chest's travel as it was
 

@@ -11,6 +11,7 @@ signal footstep(pos: Vector3, size: float)
 const BUNNY := {
 	# Her T-posed model with a clean skeleton (tools/tpose_bunny.gd makes it from the Sketchfab file).
 	"path": "res://assets/chobby_tpose.glb", "height": 1.6, "sole": 0.032,
+	"soft_press": true,   # lying down, her chest, belly and thighs give against the ground (per vertex)
 	"walk": 1.5, "run": 3.4, "stride": 1.45, "run_stride": 2.5, "radius": 0.3,
 	# Her top and shorts take the skin's bone weights, so no gap opens when the chest moves.
 	# The leash lies over these instead of passing through: [from bone, to bone, radius m, reach past "to" m].
@@ -29,7 +30,7 @@ const BUNNY := {
 		"tail": ["DEF-spine.004"],
 		"soft": [["DEF-breast01.L", "DEF-breast04.L"], ["DEF-breast01.R", "DEF-breast04.R"]],
 		"arms_down": true,
-		"clip_arms": true, "torso_swing": 0.5, "feminine": 1.0, "crawl_lift": 0.085,
+		"clip_arms": true, "torso_swing": 0.5, "feminine": 1.0, "crawl_lift": 0.03,
 		# Her legs keep their rabbit shape (knee forward, heel up); the clips move them from there.
 		"clip_keep": ["DEF-thigh.L", "DEF-shin.L", "DEF-foot.L", "DEF-toe.L", "DEF-thigh.R", "DEF-shin.R", "DEF-foot.R", "DEF-toe.R"],   # arms aimed like the clip's from arms-down (her V-sign rest wrings copied arms); half the clips' torso swing
 		"tires": true,
@@ -103,6 +104,7 @@ var body: Node3D             ## turns and leans; holds the scaled model
 var skeleton: Skeleton3D
 var face_target := Vector3.INF   ## when set, faces this point instead of the motion
 var extra_lean := 0.0
+var _press := []             ## soft-skin materials (SoftPress), when the character has them
 var _model: Node3D
 var _fit_scale := 1.0
 
@@ -131,6 +133,8 @@ func _ready() -> void:
 			var c: MeshInstance3D = scene.find_child(n, true, false)
 			if skin_mi != null and c != null:
 				SkinFit.follow_body(skin_mi, c, data.cloth.get("skip", []), float(data.cloth.get("lift", SkinFit.INFLATE)))
+	if data.get("soft_press", false):
+		_press = SoftPress.apply(scene)   # soft skin against the ground, lying down
 	var skels := scene.find_children("*", "Skeleton3D", true, false)
 	skeleton = skels[0] if skels.size() > 0 else null
 	_fit(float(data.height))
@@ -306,6 +310,11 @@ func animate(delta: float, spd: float) -> void:
 	gait.lean = lerpf(gait.lean, extra_lean, 1.0 - exp(-6.0 * delta))
 	var landed := gait.update(delta, spd)
 	body.position = gait.body_offset(float(data.height))
+	if not _press.is_empty():
+		var k := smoothstep(0.0, 1.0, gait.crawl)
+		for m in _press:
+			m.set_shader_parameter("floor_y", global_position.y)
+			m.set_shader_parameter("press", k)
 	body.rotation.x = lerpf(body.rotation.x, gait.body_lean(), 1.0 - exp(-8.0 * delta))
 	if landed != 0:
 		footstep.emit(gait.foot_position(landed > 0), float(data.height) / 1.6)

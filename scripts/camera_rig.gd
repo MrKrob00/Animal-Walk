@@ -18,6 +18,7 @@ const MAX_PITCH := deg_to_rad(75.0)
 const TURN := 0.006              ## radians per pixel dragged
 const WHEEL := 1.12              ## zoom step per wheel notch
 const LOOK_HEIGHT := 0.9         ## metres above the character's feet the camera looks at
+const LOOK_HEIGHT_CRAWL := 0.35  ## ... while it crawls
 const CLEARANCE := 0.35          ## the camera stays this far above the ground
 
 var target: Node3D       ## the character the player steers
@@ -50,7 +51,10 @@ func _focus() -> Vector3:
 	var f := target.position
 	if second != null:
 		f = f.lerp(second.position, 0.15)
-	return f + Vector3(0, LOOK_HEIGHT, 0)
+	var low := 0.0
+	if "gait" in target and target.gait != null:
+		low = smoothstep(0.0, 1.0, target.gait.crawl)
+	return f + Vector3(0, lerpf(LOOK_HEIGHT, LOOK_HEIGHT_CRAWL, low), 0)   # down with a crawler
 
 
 ## The ground directions the stick means: [right, forward] (unit, horizontal).

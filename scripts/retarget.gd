@@ -69,7 +69,12 @@ func setup(skeleton: Skeleton3D, map: Dictionary, body: Node3D, our_hip_height: 
 		var d: int = map[sname]
 		var a := Quaternion.IDENTITY
 		var aim: String = AIM.get(sname, "")
-		if aim != "" and map.has(aim):
+		if aim != "" and not map.has(aim) and sname.begins_with("DEF-foot"):
+			# A foot with no toe bone of ours (TOFU): it points forward along the ground, as the
+			# clip's foot points to its toe; lined up as the shin, its shoe turned up its toes.
+			var s_dir := src.rest_global[src.bone(aim)].origin - src.rest_global[i].origin
+			a = _frame_align(Vector3.BACK, s_dir.normalized())
+		elif aim != "" and map.has(aim):
 			var s_dir := src.rest_global[src.bone(aim)].origin - src.rest_global[i].origin
 			var d_dir: Vector3 = to_char * (skel.get_bone_global_rest(map[aim]).origin - skel.get_bone_global_rest(d).origin)
 			if s_dir.length() > 1e-6 and d_dir.length() > 1e-6:

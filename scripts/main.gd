@@ -8,6 +8,9 @@ const LEASH_ROPE := 3.25   ## rope length in 3D (the ends are at different heigh
 const HAMMER_TIME := 0.6   ## the bunny stands still while she hammers, seconds
 
 var obstacles := Obstacles.new()
+var passages := []   ## low places to crawl under (LowPassages)
+var _passage_caps := []
+const CRAWL_SPEED := 0.7   ## m/s, crawling
 var splash: Puffs              ## water drops when a paw lands in the sea
 var rules := LeashRules.new()
 var bunny: Actor
@@ -35,7 +38,10 @@ func _ready() -> void:
 	ground.mesh = Terrain.build_mesh()
 	ground.material_override = PaperMesh.material()
 	add_child(ground)
-	WorldBuilder.populate(self, obstacles)
+	passages = LowPassages.place()
+	WorldBuilder.populate(self, obstacles, 20261120, LowPassages.reserved(passages))
+	LowPassages.build(self, obstacles, passages)
+	_passage_caps = LowPassages.capsules(passages)
 	var sea := Water.new()
 	sea.name = "Sea"
 	add_child(sea)
@@ -165,7 +171,10 @@ func _physics_process(delta: float) -> void:
 		tofu.steer(Vector3.ZERO, delta)
 		tofu.place(LeashRules.clamp_to(tofu.position, rules.stake_pos, LEASH_GROUND), delta)
 		tofu.face_target = bunny.position
-	leash.colliders = tofu.capsules() + bunny.capsules()
+	leash.colliders = tofu.capsules() + bunny.capsules() + _passage_caps
+	# Under a fallen trunk, whoever is there gets down and crawls.
+	for who in [tofu, bunny]:
+		who.gait.crawling = LowPassages.under(Vector2(who.position.x, who.position.z), passages)
 	# The collar's ring slides round toward the leash, so the rope leaves the neck on its side.
 	tofu.aim_collar(leash.pts[6] if leash.pts.size() > 6 else bunny.position, delta)
 	stake.set_hint(rules.can_pick(bunny.position), _time)
@@ -176,6 +185,8 @@ func _physics_process(delta: float) -> void:
 ## The stick is read relative to the camera: "up" walks away from it.
 func _drive(who: Actor, v: Vector2, running: bool, delta: float) -> void:
 	var top: float = who.data.run if running else who.data.walk
+	if who.gait.crawling or who.gait.crawl > 0.2:
+		top = minf(top, CRAWL_SPEED)
 	var dir := camera_rig.to_ground(v) if camera_rig != null else Vector3(v.x, 0, v.y)
 	who.steer(dir * top, delta)
 
@@ -188,6 +199,8 @@ func _follow(who: Actor, leader: Vector3, delta: float) -> void:
 	var want := Vector3.ZERO
 	if dist > 0.001:
 		want = to / dist * LeashRules.follow_speed(dist, LEASH_GROUND, float(who.data.run))
+	if who.gait.crawling or who.gait.crawl > 0.2:
+		want = want.limit_length(CRAWL_SPEED)
 	who.velocity = who.velocity.move_toward(want, 10.0 * delta)
 	var free := who.position + who.velocity * delta
 	var held := LeashRules.clamp_to(free, leader, LEASH_GROUND)

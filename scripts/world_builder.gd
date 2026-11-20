@@ -29,7 +29,8 @@ const CLEARING_RADIUS := 7.0
 
 
 ## Fills `root`; obstacles go into `obs`.
-static func populate(root: Node3D, obs: Obstacles, seed_value := 20261120) -> void:
+## `reserved`: places to leave free, [Vector3(x, z, radius)] (the low passages).
+static func populate(root: Node3D, obs: Obstacles, seed_value := 20261120, reserved: Array = []) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
 	var groves := FastNoiseLite.new()
@@ -46,6 +47,12 @@ static func populate(root: Node3D, obs: Obstacles, seed_value := 20261120) -> vo
 		var x := cos(ang) * d * Terrain.shore(ang)
 		var z := sin(ang) * d * Terrain.shore(ang)
 		if Vector2(x, z).distance_to(clear) < CLEARING_RADIUS:
+			continue
+		var kept_free := false
+		for r in reserved:
+			if Vector2(x, z).distance_to(Vector2(r.x, r.y)) < r.z:
+				kept_free = true
+		if kept_free:
 			continue
 		var y := Terrain.height(x, z)
 		var roll := rng.randf()
