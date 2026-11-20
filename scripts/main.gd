@@ -193,7 +193,7 @@ func _follow(who: Actor, leader: Vector3, delta: float) -> void:
 	var held := LeashRules.clamp_to(free, leader, LEASH_GROUND)
 	var dragged := free.distance_to(held) > 0.002
 	who.face_target = leader if dragged else Vector3.INF
-	who.extra_lean = -0.22 if dragged else 0.0
+	who.extra_lean = 0.18 if dragged else 0.0   # pulled along: she leans after the leash (the player asked)
 	who.gait.dragged = dragged
 	who.gait.hold_pull = lerpf(who.gait.hold_pull, 1.0 if dragged else 0.15, 1.0 - exp(-3.0 * delta))
 	who.place(held, delta)

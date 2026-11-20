@@ -52,7 +52,7 @@ func _run() -> void:
 				a.gait.dragged = pulled
 				a.gait.hold_pull = 1.0 if pulled else 0.15
 				a.gait.hold_target = a.global_position + Vector3(3.0, 0.7, 0.3)
-				a.extra_lean = -0.22 if pulled else 0.0
+				a.extra_lean = 0.18 if pulled else 0.0
 			a.animate(dt, vel)
 			var at := Vector3(a.position.x, float(who.height) * look_h, 0)
 			cam.position = at + Vector3(sin(turn), 0, cos(turn)) * 6.0

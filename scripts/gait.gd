@@ -310,6 +310,7 @@ func update(delta: float, measured: float) -> int:
 		prev = t_yaw
 		k += 1
 
+	_pulled_along(delta)
 	_reach_for_leash(delta)
 	_soft_parts(delta)
 
@@ -506,6 +507,33 @@ func _look_yaw() -> float:
 ## The right hand holds the leash: two-bone IK puts the wrist on a point toward the leash.
 ## Slack leash: the elbow is softly bent and the hand rides the steps; taut leash: the arm
 ## straightens toward TOFU. The fingers close around the leash.
+## Pulled along, she can't keep up (the player asked): the body goes after the leash hand. The
+## spine bends forward, the chest turns so the leash shoulder leads, the free arm swings back for
+## balance; the whole body leans forward too (the game sets `lean`). Grows with the leash's pull.
+const PULL_BEND := 0.22    ## spine forward, radians in all
+const PULL_TWIST := 0.30   ## chest turned to lead with the leash shoulder, radians in all
+const PULL_ARM_BACK := 0.45
+
+var _drag_k := 0.0
+
+
+func _pulled_along(delta: float) -> void:
+	_drag_k = lerpf(_drag_k, (1.0 if dragged and hold_target != Vector3.INF else 0.0) * clampf(_pull, 0.0, 1.0), 1.0 - exp(-3.0 * delta))
+	if _drag_k < 0.01:
+		return
+	var spine := _ids("spine")
+	if spine.is_empty():
+		return
+	# Which way to turn about "up" so the right (leash) shoulder comes forward.
+	var right := -_left_char
+	var lead := signf(Vector3.UP.cross(right).dot(Vector3.BACK))   # forward is +Z in character space
+	var n := float(spine.size())
+	for b in spine:
+		_pose(b, PULL_BEND * _drag_k / n, lead * PULL_TWIST * _drag_k / n, 0.0)
+	_pose(_one("head"), -PULL_BEND * 0.5 * _drag_k, -lead * PULL_TWIST * 0.6 * _drag_k, 0.0)   # eyes stay on TOFU
+	_pose(_one("upper_arm_l"), -PULL_ARM_BACK * _drag_k, 0.0, 0.0)
+
+
 func _reach_for_leash(delta: float) -> void:
 	# Slow, eased changes: the arm takes about half a second to come up or settle.
 	_hold = move_toward(_hold, 1.0 if hold_target != Vector3.INF else 0.0, delta * 2.2)
