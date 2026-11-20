@@ -23,6 +23,7 @@ const BUNNY := {
 		"tail": ["DEF-spine.004"],
 		"soft": [["DEF-breast01.L", "DEF-breast04.L"], ["DEF-breast01.R", "DEF-breast04.R"]],
 		"arms_down": true,
+		"tires": true,
 		"fingers": {"finger": "DEF-f_%s.%02d.%s", "palm": "DEF-palm.%02d.%s", "thumb": "DEF-thumb.%02d.%s"},
 		"reparent": {
 			"DEF-thigh.L": "DEF-spine", "DEF-thigh.R": "DEF-spine",

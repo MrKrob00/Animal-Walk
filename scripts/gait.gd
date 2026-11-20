@@ -17,6 +17,8 @@ var look_target := Vector3.INF   ## world point the head turns to (Vector3.INF: 
 var hold_target := Vector3.INF   ## world point the right hand reaches to (the leash), or INF
 var hold_pull := 0.0       ## 0..1: how hard the leash pulls the hand
 var speed := 0.0           ## smoothed speed used for the pose, m/s
+var dragged := false       ## set by the game: the leash is taut and pulls this character
+var fatigue := 0.0         ## 0..1: builds while dragged at a run, goes when the pace is easy
 
 var _b := {}               ## role -> bone index, or Array of indices
 var _q := {}               ## bone -> base rotation (rest, with any base pose folded in)
@@ -28,6 +30,12 @@ var _turn := 0.0           ## smoothed turning rate, rad/s
 var _hold := 0.0           ## smoothed 0..1: the hand is on the leash
 var _pull := 0.0           ## smoothed hold_pull
 var _hold_point := Vector3.ZERO
+var _tires := false        ## only characters with "tires" in their map get tired
+var _stumble := -1.0       ## time into a stumble, or < 0
+var _stumble_side := 1.0
+var _stumble_wait := 2.0
+var _winded := 0.0         ## 0..1: bent over, hand on the knee, catching breath
+var _breath_ph := 0.0
 var _grip := []            ## right-hand finger bones: [bone, curl axis in the bone frame]
 var _ik_x := Vector3.ZERO  ## smoothed wrist goal, relative to the shoulder (skeleton space)
 var _ik_v := Vector3.ZERO
@@ -45,6 +53,9 @@ var _fwd_sk := Vector3.BACK
 var _body: Node3D
 
 const HAMMER_TIME := 0.62
+const TIRE_TIME := 4.0      ## seconds of being dragged at a run until fully worn out
+const REST_TIME := 4.5      ## seconds of easy pace or standing to recover fully
+const STUMBLE_TIME := 0.42
 
 
 ## A damped spring: soft follow-through for ears, tail and the head.
@@ -93,6 +104,7 @@ func setup(skel: Skeleton3D, map: Dictionary, body: Node3D) -> void:
 		if root >= 0 and tip >= 0:
 			_q[root] = skel.get_bone_rest(root).basis.get_rotation_quaternion()
 			_soft.append([root, tip, Vector3.ZERO, Vector3.ZERO, false, Vector3.ZERO])
+	_tires = map.get("tires", false)
 	if map.get("arms_down", false):
 		for s in [["l", 1.0], ["r", -1.0]]:
 			_arm_down(s[0], _side_sk * s[1])
@@ -169,7 +181,9 @@ func hammering() -> bool:
 func update(delta: float, measured: float) -> int:
 	_time += delta
 	speed = lerpf(speed, measured, 1.0 - exp(-7.0 * delta))
-	phase = fmod(phase + speed / _stride() * TAU * delta, TAU)
+	var st := _tire(delta)          # stumble envelope 0..1
+	var r0 := clampf((speed - walk_speed) / maxf(run_speed - walk_speed, 0.01), 0.0, 1.0)
+	phase = fmod(phase + speed / (_stride() * (1.0 - 0.22 * fatigue * r0)) * TAU * delta, TAU)
 	var yaw := _body.global_rotation.y if _body != null else 0.0
 	_turn = lerpf(_turn, angle_difference(_yaw_prev, yaw) / maxf(delta, 0.0001), 1.0 - exp(-6.0 * delta))
 	_yaw_prev = yaw
@@ -179,24 +193,30 @@ func update(delta: float, measured: float) -> int:
 	var s := sin(phase)
 	var c := cos(phase)
 	var hm := _hammer_env(delta)
+	var ft := fatigue * w          # tired while moving
+	var wd := _winded              # bent over after the run
+	_breath_ph += delta * (2.1 + 3.6 * maxf(fatigue, wd))
 
 	# Pelvis: twists with the forward leg, drops on the swinging side, shifts weight when idle.
 	var p_yaw := -lerpf(0.12, 0.16, r) * w * s
 	var p_roll := -0.05 * w * c + 0.035 * idle * sin(_time * 0.7)
-	_pose_bone(_one("pelvis"), 0.0, p_yaw, p_roll)
+	# Bending over (catching breath, a stumble) happens mostly at the hips.
+	var hip_bend := 0.55 * wd + 0.18 * st
+	_pose_bone(_one("pelvis"), hip_bend, p_yaw, p_roll)
 
 	# Spine: twists back against the pelvis, leans into the run, breathes.
 	var spine := _ids("spine")
 	var n := maxf(spine.size(), 1)
-	var breath := sin(_time * 2.1) * 0.022 * (0.4 + 0.6 * idle)
+	var breath := sin(_breath_ph) * (0.022 * (0.4 + 0.6 * idle) + 0.05 * maxf(fatigue * 0.6, wd))
 	for b in spine:
-		var pitch := (0.1 * r * w + breath + 0.42 * hm) / n
+		var pitch := (0.1 * r * w + breath + 0.42 * hm + 0.4 * st + 0.62 * wd) / n
 		_pose_bone(b, pitch, -p_yaw * 0.85 / n, -p_roll * 0.7 / n)
 
 	# Head: keeps level against the body, nods with the steps, looks at things.
 	var look := _look_yaw()
 	var head_yaw := _look.step(look, delta, 4.0, 0.9)
 	var nod := 0.035 * w * cos(phase * 2.0) - 0.1 * r * w - 0.25 * hm + 0.03 * sin(_time * 0.5) * idle
+	nod += 0.16 * ft + 0.06 * ft * sin(phase * 2.0) + 0.2 * st - 0.42 * wd   # droops, bobs; looks up when bent over
 	_pose_bone(_one("neck"), nod * 0.4, head_yaw * 0.4 + p_yaw * 0.1, 0.0)
 	_pose_bone(_one("head"), nod * 0.6, head_yaw * 0.6 + p_yaw * 0.05, -p_roll * 0.3)
 
@@ -205,8 +225,9 @@ func update(delta: float, measured: float) -> int:
 	var knee := lerpf(0.6, 1.25, r) * w
 	for side in [["l", 0.0], ["r", PI]]:
 		var ph: float = phase + side[1]
-		var a_t: float = -thigh * sin(ph) - 0.35 * hm
-		var a_k: float = (0.05 + knee * pow(maxf(0.0, cos(ph)), 1.4)) * w + 0.04 * idle + 0.6 * hm
+		var buckle: float = st * (1.0 if (side[0] == "l") == (_stumble_side > 0.0) else 0.0)
+		var a_t: float = -thigh * sin(ph) - 0.35 * hm - 0.3 * buckle + 0.15 * (st - buckle) - 0.22 * wd - hip_bend
+		var a_k: float = (0.05 + knee * pow(maxf(0.0, cos(ph)), 1.4)) * w + 0.04 * idle + 0.6 * hm + 0.75 * buckle + 0.32 * wd
 		_pose_bone(_one("thigh_" + side[0]), a_t, 0.0, 0.0)
 		_pose_bone(_one("shin_" + side[0]), a_k, 0.0, 0.0)
 		_pose_bone(_one("foot_" + side[0]), -(a_t + a_k) * 0.75 - 0.2 * w * maxf(0.0, -sin(ph)) * maxf(0.0, cos(ph)) - 0.25 * hm, 0.0, 0.0)
@@ -219,7 +240,13 @@ func update(delta: float, measured: float) -> int:
 		var swing: float = arm * sin(ph) * (1.0 - 0.7 * hold) + 0.03 * sin(_time * 1.6 + side[1]) * idle
 		var strike := -(0.55 + 0.75 * (0.5 + 0.5 * cos(_hammer_knock() * TAU))) * hm
 		var elbow := -(0.05 + 0.22 * w * maxf(0.0, -sin(ph)) + lerpf(0.1, 0.7, r) * w) - 0.5 * hm
-		_pose_bone(_one("upper_arm_" + side[0]), swing + strike, 0.0, side[2] * (0.07 * r + 0.02))
+		var free := 1.0 - hold
+		# Worn out: the free arm flails out for balance; a stumble throws both arms forward;
+		# bent over, the free hand goes to the knee.
+		var flail: float = ft * free * (0.55 + 0.35 * sin(phase * 1.3 + side[1] * 0.7))
+		swing += -0.45 * ft * free * sin(phase * 1.6 + 0.8) - 0.6 * st - 0.6 * wd * free
+		elbow += -0.35 * ft * free - 0.12 * wd * free
+		_pose_bone(_one("upper_arm_" + side[0]), swing + strike, 0.0, side[2] * (0.07 * r + 0.02 + flail))
 		_pose_bone(_one("forearm_" + side[0]), elbow * (1.0 - 0.6 * hold), 0.0, 0.0)
 
 	# Ears and tail on springs: they lag behind the steps and the turns.
@@ -232,7 +259,7 @@ func update(delta: float, measured: float) -> int:
 	var k := 0
 	for b in _ids("ears"):
 		var sp: Array = _ears[k]
-		var e_pitch: float = sp[0].step(-0.12 * w - 0.35 * r * w, delta, 5.0, 0.2, bob_acc * 0.4 + (twitch if k == 0 else 0.0))
+		var e_pitch: float = sp[0].step(-0.12 * w - 0.35 * r * w - 0.3 * ft + 0.2 * wd, delta, 5.0, 0.2, bob_acc * 0.4 + (twitch if k == 0 else 0.0) + 60.0 * st)
 		var e_yaw: float = sp[1].step(clampf(-_turn * 0.12, -0.5, 0.5), delta, 6.0, 0.25)
 		_pose_bone(b, e_pitch, e_yaw, 0.0)
 		k += 1
@@ -254,6 +281,44 @@ func update(delta: float, measured: float) -> int:
 		landed = sign
 	_last_sign = sign
 	return landed
+
+
+## Tiredness: builds while dragged at a run, a stumble now and then when worn out,
+## bent over catching breath after stopping. Returns the stumble envelope (0..1).
+func _tire(delta: float) -> float:
+	if not _tires:
+		return 0.0
+	var straining := (dragged or hold_pull > 0.6) and speed > walk_speed * 1.15
+	if straining:
+		fatigue = minf(1.0, fatigue + delta / TIRE_TIME)
+	else:
+		fatigue = maxf(0.0, fatigue - delta / REST_TIME)
+	if _stumble < 0.0 and straining and fatigue > 0.45:
+		_stumble_wait -= delta
+		if _stumble_wait <= 0.0:
+			_stumble = 0.0
+			_stumble_side = 1.0 if _rng.randf() < 0.5 else -1.0
+			_stumble_wait = _rng.randf_range(1.2, 2.8) * (1.3 - 0.5 * fatigue)
+	var st := 0.0
+	if _stumble >= 0.0:
+		_stumble += delta
+		if _stumble > STUMBLE_TIME:
+			_stumble = -1.0
+		else:
+			st = sin(PI * _stumble / STUMBLE_TIME)
+	# Stopped worn out (over half), she stays bent over until she is mostly rested.
+	var bent := speed < 0.4 and not straining and fatigue > 0.22 and (_winded > 0.05 or fatigue > 0.5)
+	var bend := 1.0 if bent else 0.0
+	_winded = move_toward(_winded, bend, delta * (1.2 if bend > _winded else 0.8))
+	return st
+
+
+func stumbling() -> bool:
+	return _stumble >= 0.0
+
+
+func winded() -> float:
+	return _winded
 
 
 func _stride() -> float:
@@ -325,7 +390,7 @@ func bob() -> float:
 ## Forward lean of the whole body (radians), from the gait plus any extra lean.
 func body_lean() -> float:
 	var r := clampf((speed - walk_speed) / maxf(run_speed - walk_speed, 0.01), 0.0, 1.0)
-	return lerpf(0.02, 0.1, r) * clampf(speed / walk_speed, 0.0, 1.0) + lean
+	return lerpf(0.02, 0.1, r) * clampf(speed / walk_speed, 0.0, 1.0) + lean - 0.1 * fatigue * r
 
 
 func foot_position(left: bool) -> Vector3:
