@@ -11,6 +11,9 @@ signal footstep(pos: Vector3, size: float)
 const BUNNY := {
 	"path": "res://assets/free_download_-_chobby_bun.glb", "height": 1.6,
 	"walk": 1.5, "run": 3.4, "stride": 1.45, "run_stride": 2.5, "radius": 0.3,
+	# Her top and shorts take the skin's bone weights, so no gap opens when the chest moves.
+	"cloth": {"body": "Object_11", "items": ["Object_670", "Object_672"],
+		"skip": ["DEF-upper_arm", "DEF-forearm", "DEF-hand", "DEF-f_", "DEF-thumb", "DEF-palm"]},
 	"bones": {
 		"pelvis": "DEF-spine", "spine": ["DEF-spine.001", "DEF-spine.002", "DEF-spine.003"],
 		"neck": "DEF-neck", "head": "DEF-head",
@@ -113,6 +116,12 @@ func _ready() -> void:
 			mi.visible = false
 	for ap in scene.find_children("*", "AnimationPlayer", true, false):
 		ap.stop()   # files may carry a broken showcase clip; Gait drives the bones
+	if data.has("cloth"):
+		var skin_mi: MeshInstance3D = scene.find_child(data.cloth.body, true, false)
+		for n in data.cloth.items:
+			var c: MeshInstance3D = scene.find_child(n, true, false)
+			if skin_mi != null and c != null:
+				SkinFit.follow_body(skin_mi, c, data.cloth.get("skip", []))
 	var skels := scene.find_children("*", "Skeleton3D", true, false)
 	skeleton = skels[0] if skels.size() > 0 else null
 	_fit(float(data.height))
