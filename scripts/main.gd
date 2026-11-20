@@ -92,6 +92,8 @@ func _ready() -> void:
 	camera_rig = CameraRig.new()
 	camera_rig.target = tofu
 	camera_rig.second = bunny
+	camera_rig.button = button
+	camera_rig.stick_zone = TouchJoystick.ZONE
 	add_child(camera_rig)
 
 
@@ -171,9 +173,11 @@ func _physics_process(delta: float) -> void:
 
 
 ## The player's character: walk with the stick, run with the stick pushed far (or Shift).
+## The stick is read relative to the camera: "up" walks away from it.
 func _drive(who: Actor, v: Vector2, running: bool, delta: float) -> void:
 	var top: float = who.data.run if running else who.data.walk
-	who.steer(Vector3(v.x, 0, v.y) * top, delta)
+	var dir := camera_rig.to_ground(v) if camera_rig != null else Vector3(v.x, 0, v.y)
+	who.steer(dir * top, delta)
 
 
 ## The bunny holding the leash: walks after TOFU, and is dragged when the leash is taut.

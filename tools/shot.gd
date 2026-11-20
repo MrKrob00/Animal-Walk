@@ -26,7 +26,7 @@ func _run() -> void:
 	var main = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)
 	await process_frame
-	main.camera_rig.camera.position *= zoom
+	main.camera_rig.set_distance(main.camera_rig.distance * zoom)
 	if zoom > 3.0:   # an overview: see far, and show every piece of the island
 		main.camera_rig.camera.far = 4000.0
 		for m in main.find_children("*", "MultiMeshInstance3D", true, false):
