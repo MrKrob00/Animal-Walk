@@ -13,4 +13,10 @@ All models are used under Creative Commons Attribution 4.0 (CC BY 4.0): https://
 | Stylized Deer character | hugannh3 | https://sketchfab.com/3d-models/0dfcaeec76d64678af59e4952a9f2762 | — |
 | Jacob - Game Ready OC | jupifox | https://jupifox.itch.io/jacob-game-ready-character | — |
 
+## Animation
+
+| Clips | Author | Source | Licence |
+|---|---|---|---|
+| Universal Animation Library (Standard): idle, walk, jog, sprint | Quaternius | https://quaternius.com/packs/universalanimationlibrary.html | CC0 1.0 |
+
 Everything else (terrain, trees, rocks, stake, shaders, code) is made for this project.

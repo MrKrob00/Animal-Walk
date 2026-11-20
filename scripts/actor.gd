@@ -24,6 +24,15 @@ const BUNNY := {
 		"soft": [["DEF-breast01.L", "DEF-breast04.L"], ["DEF-breast01.R", "DEF-breast04.R"]],
 		"arms_down": true,
 		"tires": true,
+		# Real clips (tools: ClipSource / Retarget): source bone -> our bone.
+		"clips": {
+			"DEF-hips": "DEF-spine", "DEF-spine.001": "DEF-spine.001", "DEF-spine.002": "DEF-spine.002",
+			"DEF-spine.003": "DEF-spine.003", "DEF-neck": "DEF-neck", "DEF-head": "DEF-head",
+			"DEF-shoulder.L": "DEF-shoulder.L", "DEF-upper_arm.L": "DEF-upper_arm.L", "DEF-forearm.L": "DEF-forearm.L", "DEF-hand.L": "DEF-hand.L",
+			"DEF-shoulder.R": "DEF-shoulder.R", "DEF-upper_arm.R": "DEF-upper_arm.R", "DEF-forearm.R": "DEF-forearm.R", "DEF-hand.R": "DEF-hand.R",
+			"DEF-thigh.L": "DEF-thigh.L", "DEF-shin.L": "DEF-shin.L", "DEF-foot.L": "DEF-foot.L", "DEF-toe.L": "DEF-toe.L",
+			"DEF-thigh.R": "DEF-thigh.R", "DEF-shin.R": "DEF-shin.R", "DEF-foot.R": "DEF-foot.R", "DEF-toe.R": "DEF-toe.R",
+		},
 		"fingers": {"finger": "DEF-f_%s.%02d.%s", "palm": "DEF-palm.%02d.%s", "thumb": "DEF-thumb.%02d.%s"},
 		"reparent": {
 			"DEF-thigh.L": "DEF-spine", "DEF-thigh.R": "DEF-spine",
@@ -58,6 +67,13 @@ const TOFU := {
 		"upper_arm_l": "upper_arm.L", "forearm_l": "forearm.L",
 		"upper_arm_r": "upper_arm.R", "forearm_r": "forearm.R",
 		"tail": ["tail1", "tail2", "tail3"],
+		"clips": {
+			"DEF-hips": "hips", "DEF-spine.001": "spine", "DEF-spine.003": "chest", "DEF-neck": "neck", "DEF-head": "head",
+			"DEF-upper_arm.L": "upper_arm.L", "DEF-forearm.L": "forearm.L", "DEF-hand.L": "hand.L",
+			"DEF-upper_arm.R": "upper_arm.R", "DEF-forearm.R": "forearm.R", "DEF-hand.R": "hand.R",
+			"DEF-thigh.L": "thigh.L", "DEF-shin.L": "shin.L", "DEF-foot.L": "foot.L",
+			"DEF-thigh.R": "thigh.R", "DEF-shin.R": "shin.R", "DEF-foot.R": "foot.R",
+		},
 	},
 	# A red leather collar with a brass ring at the front (the leash clips to the ring).
 	# Numbers are in the rig's own units (skeleton space of tofu_rigged.glb, Y up, +Z forward),
@@ -213,7 +229,7 @@ func _process(delta: float) -> void:
 func animate(delta: float, spd: float) -> void:
 	gait.lean = lerpf(gait.lean, extra_lean, 1.0 - exp(-6.0 * delta))
 	var landed := gait.update(delta, spd)
-	body.position.y = gait.bob() * float(data.height)
+	body.position = gait.body_offset(float(data.height))
 	body.rotation.x = lerpf(body.rotation.x, gait.body_lean(), 1.0 - exp(-8.0 * delta))
 	if landed != 0:
 		footstep.emit(gait.foot_position(landed > 0), float(data.height) / 1.6)

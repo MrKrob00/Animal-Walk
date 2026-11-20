@@ -51,6 +51,8 @@ var _side_sk := Vector3.RIGHT
 var _up_sk := Vector3.UP
 var _fwd_sk := Vector3.BACK
 var _body: Node3D
+var rt: Retarget            ## real clips, when the map has "clips"; else the old procedural walk
+var _offset := Vector3.ZERO ## body offset from the clips' hips (metres, character space)
 
 const HAMMER_TIME := 0.62
 const TIRE_TIME := 4.0      ## seconds of being dragged at a run until fully worn out
@@ -105,7 +107,17 @@ func setup(skel: Skeleton3D, map: Dictionary, body: Node3D) -> void:
 			_q[root] = skel.get_bone_rest(root).basis.get_rotation_quaternion()
 			_soft.append([root, tip, Vector3.ZERO, Vector3.ZERO, false, Vector3.ZERO])
 	_tires = map.get("tires", false)
-	if map.get("arms_down", false):
+	if map.has("clips"):
+		var cmap := {}
+		for src_name in map.clips:
+			var b := find_bone(skel, map.clips[src_name])
+			if b >= 0:
+				cmap[src_name] = b
+		rt = Retarget.new()
+		var pel := _one("pelvis")
+		var hip_h: float = (skel.global_transform * skel.get_bone_global_rest(pel).origin).y - body.global_position.y
+		rt.setup(skel, cmap, body, hip_h)
+	if map.get("arms_down", false) and rt == null:
 		for s in [["l", 1.0], ["r", -1.0]]:
 			_arm_down(s[0], _side_sk * s[1])
 	if map.has("fingers"):
@@ -183,7 +195,16 @@ func update(delta: float, measured: float) -> int:
 	speed = lerpf(speed, measured, 1.0 - exp(-7.0 * delta))
 	var st := _tire(delta)          # stumble envelope 0..1
 	var r0 := clampf((speed - walk_speed) / maxf(run_speed - walk_speed, 0.01), 0.0, 1.0)
-	phase = fmod(phase + speed / (_stride() * (1.0 - 0.22 * fatigue * r0)) * TAU * delta, TAU)
+	var clip_landed := 0
+	if rt != null:
+		# Real clips first; everything below is added on top of them.
+		var res := rt.apply(delta, speed * (1.0 + 0.2 * fatigue * r0))
+		_offset = res[0]
+		clip_landed = res[1]
+		phase = rt.phase * TAU
+	else:
+		phase = fmod(phase + speed / (_stride() * (1.0 - 0.22 * fatigue * r0)) * TAU * delta, TAU)
+	var loco := 0.0 if rt != null else 1.0   # the procedural walk only without clips
 	var yaw := _body.global_rotation.y if _body != null else 0.0
 	_turn = lerpf(_turn, angle_difference(_yaw_prev, yaw) / maxf(delta, 0.0001), 1.0 - exp(-6.0 * delta))
 	_yaw_prev = yaw
@@ -198,56 +219,56 @@ func update(delta: float, measured: float) -> int:
 	_breath_ph += delta * (2.1 + 3.6 * maxf(fatigue, wd))
 
 	# Pelvis: twists with the forward leg, drops on the swinging side, shifts weight when idle.
-	var p_yaw := -lerpf(0.12, 0.16, r) * w * s
-	var p_roll := -0.05 * w * c + 0.035 * idle * sin(_time * 0.7)
+	var p_yaw := -lerpf(0.12, 0.16, r) * w * s * loco
+	var p_roll := (-0.05 * w * c + 0.035 * idle * sin(_time * 0.7)) * loco
 	# Bending over (catching breath, a stumble) happens mostly at the hips.
 	var hip_bend := 0.55 * wd + 0.18 * st
-	_pose_bone(_one("pelvis"), hip_bend, p_yaw, p_roll)
+	_pose(_one("pelvis"), hip_bend, p_yaw, p_roll)
 
 	# Spine: twists back against the pelvis, leans into the run, breathes.
 	var spine := _ids("spine")
 	var n := maxf(spine.size(), 1)
-	var breath := sin(_breath_ph) * (0.022 * (0.4 + 0.6 * idle) + 0.05 * maxf(fatigue * 0.6, wd))
+	var breath := sin(_breath_ph) * (0.022 * (0.4 + 0.6 * idle) * loco + 0.05 * maxf(fatigue * 0.6, wd))
 	for b in spine:
-		var pitch := (0.1 * r * w + breath + 0.42 * hm + 0.4 * st + 0.62 * wd) / n
-		_pose_bone(b, pitch, -p_yaw * 0.85 / n, -p_roll * 0.7 / n)
+		var pitch := (0.1 * r * w * loco + breath + 0.42 * hm + 0.4 * st + 0.62 * wd) / n
+		_pose(b, pitch, -p_yaw * 0.85 / n, -p_roll * 0.7 / n)
 
 	# Head: keeps level against the body, nods with the steps, looks at things.
 	var look := _look_yaw()
 	var head_yaw := _look.step(look, delta, 4.0, 0.9)
-	var nod := 0.035 * w * cos(phase * 2.0) - 0.1 * r * w - 0.25 * hm + 0.03 * sin(_time * 0.5) * idle
+	var nod := (0.035 * w * cos(phase * 2.0) - 0.1 * r * w + 0.03 * sin(_time * 0.5) * idle) * loco - 0.25 * hm
 	nod += 0.16 * ft + 0.06 * ft * sin(phase * 2.0) + 0.2 * st - 0.42 * wd   # droops, bobs; looks up when bent over
-	_pose_bone(_one("neck"), nod * 0.4, head_yaw * 0.4 + p_yaw * 0.1, 0.0)
-	_pose_bone(_one("head"), nod * 0.6, head_yaw * 0.6 + p_yaw * 0.05, -p_roll * 0.3)
+	_pose(_one("neck"), nod * 0.4, head_yaw * 0.4 + p_yaw * 0.1, 0.0)
+	_pose(_one("head"), nod * 0.6, head_yaw * 0.6 + p_yaw * 0.05, -p_roll * 0.3)
 
 	# Legs: swing, bend the knee in the swing, keep the foot flat, crouch for the hammer.
-	var thigh := lerpf(0.4, 0.72, r) * w
-	var knee := lerpf(0.6, 1.25, r) * w
+	var thigh := lerpf(0.4, 0.72, r) * w * loco
+	var knee := lerpf(0.6, 1.25, r) * w * loco
 	for side in [["l", 0.0], ["r", PI]]:
 		var ph: float = phase + side[1]
 		var buckle: float = st * (1.0 if (side[0] == "l") == (_stumble_side > 0.0) else 0.0)
 		var a_t: float = -thigh * sin(ph) - 0.35 * hm - 0.3 * buckle + 0.15 * (st - buckle) - 0.22 * wd - hip_bend
-		var a_k: float = (0.05 + knee * pow(maxf(0.0, cos(ph)), 1.4)) * w + 0.04 * idle + 0.6 * hm + 0.75 * buckle + 0.32 * wd
-		_pose_bone(_one("thigh_" + side[0]), a_t, 0.0, 0.0)
-		_pose_bone(_one("shin_" + side[0]), a_k, 0.0, 0.0)
-		_pose_bone(_one("foot_" + side[0]), -(a_t + a_k) * 0.75 - 0.2 * w * maxf(0.0, -sin(ph)) * maxf(0.0, cos(ph)) - 0.25 * hm, 0.0, 0.0)
+		var a_k: float = ((0.05 + knee * pow(maxf(0.0, cos(ph)), 1.4)) * w + 0.04 * idle) * loco + 0.6 * hm + 0.75 * buckle + 0.32 * wd
+		_pose(_one("thigh_" + side[0]), a_t, 0.0, 0.0)
+		_pose(_one("shin_" + side[0]), a_k, 0.0, 0.0)
+		_pose(_one("foot_" + side[0]), -(a_t + a_k) * 0.75 - 0.2 * w * maxf(0.0, -sin(ph)) * maxf(0.0, cos(ph)) * loco - 0.25 * hm, 0.0, 0.0)
 
 	# Arms: swing against the legs a touch late, bend more in the run, strike for the hammer.
-	var arm := lerpf(0.3, 0.55, r) * w
+	var arm := lerpf(0.3, 0.55, r) * w * loco
 	for side in [["l", 0.0, 1.0], ["r", PI, -1.0]]:
 		var ph: float = phase + side[1] - 0.2
 		var hold := _hold if side[0] == "r" else 0.0
-		var swing: float = arm * sin(ph) * (1.0 - 0.7 * hold) + 0.03 * sin(_time * 1.6 + side[1]) * idle
+		var swing: float = (arm * sin(ph) * (1.0 - 0.7 * hold) + 0.03 * sin(_time * 1.6 + side[1]) * idle) * loco
 		var strike := -(0.55 + 0.75 * (0.5 + 0.5 * cos(_hammer_knock() * TAU))) * hm
-		var elbow := -(0.05 + 0.22 * w * maxf(0.0, -sin(ph)) + lerpf(0.1, 0.7, r) * w) - 0.5 * hm
+		var elbow := -(0.05 + 0.22 * w * maxf(0.0, -sin(ph)) + lerpf(0.1, 0.7, r) * w) * loco - 0.5 * hm
 		var free := 1.0 - hold
 		# Worn out: the free arm flails out for balance; a stumble throws both arms forward;
 		# bent over, the free hand goes to the knee.
 		var flail: float = ft * free * (0.55 + 0.35 * sin(phase * 1.3 + side[1] * 0.7))
 		swing += -0.45 * ft * free * sin(phase * 1.6 + 0.8) - 0.6 * st - 0.6 * wd * free
 		elbow += -0.35 * ft * free - 0.12 * wd * free
-		_pose_bone(_one("upper_arm_" + side[0]), swing + strike, 0.0, side[2] * (0.07 * r + 0.02 + flail))
-		_pose_bone(_one("forearm_" + side[0]), elbow * (1.0 - 0.6 * hold), 0.0, 0.0)
+		_pose(_one("upper_arm_" + side[0]), swing + strike, 0.0, side[2] * ((0.07 * r + 0.02) * loco + flail))
+		_pose(_one("forearm_" + side[0]), elbow * (1.0 - 0.6 * hold), 0.0, 0.0)
 
 	# Ears and tail on springs: they lag behind the steps and the turns.
 	_twitch -= delta
@@ -275,6 +296,8 @@ func update(delta: float, measured: float) -> int:
 	_reach_for_leash(delta)
 	_soft_parts(delta)
 
+	if rt != null:
+		return clip_landed
 	var sign := 1 if s > 0.0 else -1
 	var landed := 0
 	if w > 0.15 and sign != _last_sign:
@@ -387,10 +410,18 @@ func bob() -> float:
 	return lerpf(0.012, 0.035, r) * w * (0.5 + 0.5 * cos(phase * 2.0)) - 0.06 * _hammer_env(0.0)
 
 
+## Where the body sits this frame (metres, character space): the clips' hips, or the bob.
+func body_offset(height: float) -> Vector3:
+	if rt != null:
+		return _offset - Vector3(0, 0.06 * _hammer_env(0.0) * height, 0)
+	return Vector3(0, bob() * height, 0)
+
+
 ## Forward lean of the whole body (radians), from the gait plus any extra lean.
 func body_lean() -> float:
 	var r := clampf((speed - walk_speed) / maxf(run_speed - walk_speed, 0.01), 0.0, 1.0)
-	return lerpf(0.02, 0.1, r) * clampf(speed / walk_speed, 0.0, 1.0) + lean - 0.1 * fatigue * r
+	var run_lean := 0.0 if rt != null else lerpf(0.02, 0.1, r) * clampf(speed / walk_speed, 0.0, 1.0)
+	return run_lean + lean - 0.1 * fatigue * r
 
 
 func foot_position(left: bool) -> Vector3:
@@ -398,6 +429,19 @@ func foot_position(left: bool) -> Vector3:
 	if b < 0:
 		return skeleton.global_position
 	return skeleton.global_transform * skeleton.get_bone_global_pose(b).origin
+
+
+## Without clips: sets the bone (rest + these angles). With clips: adds the angles on top of the
+## clip's pose, about the character's own axes as seen in the bone's current frame.
+func _pose(b: int, pitch: float, yaw: float, roll: float) -> void:
+	if rt == null:
+		_pose_bone(b, pitch, yaw, roll)
+		return
+	if b < 0 or (absf(pitch) < 1e-5 and absf(yaw) < 1e-5 and absf(roll) < 1e-5):
+		return
+	var g := skeleton.get_bone_global_pose(b).basis.orthonormalized().inverse()
+	var extra := Quaternion((g * _side_sk).normalized(), pitch) * Quaternion((g * _up_sk).normalized(), yaw) * Quaternion((g * _fwd_sk).normalized(), roll)
+	skeleton.set_bone_pose_rotation(b, skeleton.get_bone_pose_rotation(b) * extra)
 
 
 func _pose_bone(b: int, pitch: float, yaw: float, roll: float) -> void:
