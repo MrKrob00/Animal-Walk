@@ -29,6 +29,9 @@ var _hold := 0.0           ## smoothed 0..1: the hand is on the leash
 var _pull := 0.0           ## smoothed hold_pull
 var _hold_point := Vector3.ZERO
 var _grip := []            ## right-hand finger bones: [bone, curl axis in the bone frame]
+var _ik_x := Vector3.ZERO  ## smoothed wrist goal, relative to the shoulder (skeleton space)
+var _ik_v := Vector3.ZERO
+var _ik_ready := false
 var _hammer := -1.0        ## time into the hammering, or < 0
 var _ears := []            ## springs: [pitch, yaw] per ear
 var _tail := []            ## springs per tail bone
@@ -368,15 +371,18 @@ func _look_yaw() -> float:
 ## Slack leash: the elbow is softly bent and the hand rides the steps; taut leash: the arm
 ## straightens toward TOFU. The fingers close around the leash.
 func _reach_for_leash(delta: float) -> void:
-	_hold = lerpf(_hold, 1.0 if hold_target != Vector3.INF else 0.0, 1.0 - exp(-6.0 * delta))
-	_pull = lerpf(_pull, hold_pull, 1.0 - exp(-4.0 * delta))
+	# Slow, eased changes: the arm takes about half a second to come up or settle.
+	_hold = move_toward(_hold, 1.0 if hold_target != Vector3.INF else 0.0, delta * 2.2)
+	_pull = lerpf(_pull, hold_pull, 1.0 - exp(-2.2 * delta))
+	var hold := smoothstep(0.0, 1.0, _hold)
 	for g in _grip:
 		var b: int = g[0]
-		skeleton.set_bone_pose_rotation(b, _q[b] * Quaternion(g[1], 0.55 * _hold))
+		skeleton.set_bone_pose_rotation(b, _q[b] * Quaternion(g[1], 0.5 * hold))
 	var ua := _one("upper_arm_r")
 	var fa := _one("forearm_r")
 	var hand := _one("hand_r")
-	if _hold < 0.01 or ua < 0 or fa < 0 or hand < 0:
+	if _hold < 0.001 or ua < 0 or fa < 0 or hand < 0:
+		_ik_ready = false
 		return
 	if hold_target != Vector3.INF:
 		_hold_point = hold_target
@@ -395,8 +401,19 @@ func _reach_for_leash(delta: float) -> void:
 	var dir := rest_dir.slerp(to_leash, 0.12 + 0.8 * _pull).normalized()
 	var reach := (l1 + l2) * lerpf(0.9, 0.985, _pull)
 	var bounce := _up_sk * (l1 + l2) * 0.025 * sin(phase * 2.0) * clampf(speed / walk_speed, 0.0, 1.0)
-	var target := sh + dir * reach + bounce
-	target = wr.lerp(target, _hold)
+	var goal := sh + dir * reach
+	# The wrist goal is followed through a soft spring in the shoulder's frame, so sudden turns
+	# of TOFU swing the arm over smoothly instead of snapping it.
+	var rel := goal - sh
+	if not _ik_ready:
+		_ik_x = rel
+		_ik_v = Vector3.ZERO
+		_ik_ready = true
+	var wk := TAU * 1.1
+	_ik_v += (wk * wk * (rel - _ik_x) - 2.0 * 0.85 * wk * _ik_v) * delta
+	_ik_x += _ik_v * delta
+	var target := sh + _ik_x.normalized() * minf(_ik_x.length(), (l1 + l2) * 0.99) + bounce
+	target = wr.lerp(target, hold)
 	# Two-bone IK: the elbow bends down, back and out.
 	var d := clampf((target - sh).length(), absf(l1 - l2) + 0.001, l1 + l2 - 0.001)
 	var u := (target - sh).normalized()
@@ -455,19 +472,26 @@ func _relax_fingers(f: Dictionary, s: String) -> void:
 	var mid: Vector3 = (o.call(palm1) + o.call(palm4)) * 0.5
 	if normal.dot(o.call(thumb) - mid) < 0.0:
 		normal = -normal          # the palm faces the side where the thumb tip is
-	var curls := [0.3, 0.55, 0.45]
+	var curls := [0.42, 0.78, 0.55]   # knuckle, middle joint, tip joint: a soft, relaxed hand
 	for i in names.size():
 		var palm := find_bone(skeleton, f.palm % [i + 1, s])
 		var seg := []
 		for j in 3:
 			seg.append(find_bone(skeleton, f.finger % [names[i], j + 1, s]))
+		var tip := find_bone(skeleton, (f.finger % [names[i], 3, s]) + "_end")
 		if palm < 0 or seg.has(-1):
 			continue
 		var dir: Vector3 = (o.call(seg[0]) - o.call(palm)).normalized()
 		var acc := Quaternion.IDENTITY
 		for j in 3:
 			var b: int = seg[j]
-			var nxt: Vector3 = o.call(seg[j + 1]) if j < 2 else o.call(b) + (o.call(seg[1]) - o.call(seg[0])).normalized()
+			var nxt: Vector3
+			if j < 2:
+				nxt = o.call(seg[j + 1])
+			elif tip >= 0 and (o.call(tip) - o.call(b)).length() > 1e-5:
+				nxt = o.call(tip)                # the real fingertip
+			else:
+				nxt = o.call(b) + (o.call(seg[1]) - o.call(seg[0])).normalized()
 			var cur: Vector3 = acc * (nxt - o.call(b)).normalized()
 			dir = Quaternion(dir.cross(normal).normalized(), curls[j] + (0.06 * i)) * dir
 			var q := _arc(cur, dir)
