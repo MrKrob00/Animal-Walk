@@ -461,10 +461,10 @@ func _reach_for_leash(delta: float) -> void:
 	var l1 := (el - sh).length()
 	var l2 := (wr - el).length()
 	# Where the wrist goes: toward the leash, low and in front when slack, at reach when taut.
-	var to_leash := ((to_sk * _hold_point) - sh).normalized()
+	var to_leash := _shoulder_limit(((to_sk * _hold_point) - sh).normalized())
 	var rest_dir := (-_up_sk + _fwd_sk * 0.3 - _side_sk * 0.4).normalized()
-	var dir := rest_dir.slerp(to_leash, 0.12 + 0.8 * _pull).normalized()
-	var reach := (l1 + l2) * lerpf(0.9, 0.985, _pull)
+	var dir := rest_dir.slerp(to_leash, 0.45 + 0.55 * _pull).normalized()
+	var reach := (l1 + l2) * lerpf(0.86, 0.99, _pull)
 	var bounce := _up_sk * (l1 + l2) * 0.025 * sin(phase * 2.0) * clampf(speed / walk_speed, 0.0, 1.0)
 	var goal := sh + dir * reach
 	# The wrist goal is followed through a soft spring in the shoulder's frame, so sudden turns
@@ -493,6 +493,33 @@ func _reach_for_leash(delta: float) -> void:
 	var q2 := _arc(fa_now, (sh + u * d - el_new).normalized())
 	var gb2 := (Basis(q1) * g_fa.basis.orthonormalized()).orthonormalized()
 	skeleton.set_bone_pose_rotation(fa, skeleton.get_bone_pose_rotation(fa) * Quaternion(gb2.inverse() * Basis(q2) * gb2))
+
+
+## What a right shoulder can do: the arm follows the leash strongly, but never further than
+## ARM_ACROSS across the chest, ARM_BACK behind the side, or ARM_UP above the horizon.
+const ARM_ACROSS := deg_to_rad(30.0)
+const ARM_BACK := deg_to_rad(115.0)
+const ARM_UP := deg_to_rad(65.0)
+
+func _shoulder_limit(d: Vector3) -> Vector3:
+	var out := -_side_sk          # the right arm's outward side
+	var o := d.dot(out)
+	var f := d.dot(_fwd_sk)
+	var u := d.dot(_up_sk)
+	var az := atan2(o, f)                     # 0 = ahead, + = out to the right side
+	if az < -ARM_ACROSS and f < 0.0:
+		az = ARM_BACK                         # behind her left: reach back along the right side
+	az = clampf(az, -ARM_ACROSS, ARM_BACK)
+	var el := clampf(asin(clampf(u, -1.0, 1.0)), -PI * 0.5, ARM_UP)
+	return (out * sin(az) * cos(el) + _fwd_sk * cos(az) * cos(el) + _up_sk * sin(el)).normalized()
+
+
+## The arm's direction in the body frame: [azimuth, elevation] (for tests).
+func right_arm_angles() -> Vector2:
+	var ua := _one("upper_arm_r")
+	var hand := _one("hand_r")
+	var d := (skeleton.get_bone_global_pose(hand).origin - skeleton.get_bone_global_pose(ua).origin).normalized()
+	return Vector2(atan2(d.dot(-_side_sk), d.dot(_fwd_sk)), asin(clampf(d.dot(_up_sk), -1.0, 1.0)))
 
 
 ## Base pose for models whose rest pose has the arms up: hang each arm down at the side,

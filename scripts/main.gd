@@ -55,7 +55,7 @@ func _ready() -> void:
 	bunny.position = Vector3(-0.6, Terrain.height(-0.6, 3.2), 3.2)
 	add_child(bunny)
 
-	_collar = tofu.attach_point(Actor.TOFU.collar, Vector3(0, 0, 0.12))
+	_collar = tofu.attach_point(Actor.TOFU.collar, Vector3(0, -0.01, 0.06))   # front of the neck
 	_hand = bunny.attach_point(Actor.BUNNY.hand)
 
 	stake = Stake.new()

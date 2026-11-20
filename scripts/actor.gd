@@ -59,7 +59,7 @@ const TOFU := {
 		"upper_arm_r": "upper_arm.R", "forearm_r": "forearm.R",
 		"tail": ["tail1", "tail2", "tail3"],
 	},
-	"collar": "chest",
+	"collar": "neck",
 	"hide": [],
 }
 

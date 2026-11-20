@@ -55,6 +55,22 @@ func _run() -> void:
 		biggest = maxf(biggest, now.distance_to(last))
 		last = now
 	Check.ok(biggest < 0.03, "the arm swings over smoothly (largest step %.3f m per frame)" % biggest)
+	# Leash straight behind her, then far across to her left: the arm follows, within reason.
+	a.gait.hold_target = a.global_position + Vector3(0.3, 1.0, -3.0)
+	for i in 200:
+		a.animate(0.016, 0.0)
+	var behind := a.gait.right_arm_angles()
+	Check.ok(behind.x > deg_to_rad(70.0) and behind.x <= Gait.ARM_BACK + 0.2, "leash behind: the arm reaches back along her side, only so far (%.0f deg)" % rad_to_deg(behind.x))
+	a.gait.hold_target = a.global_position + Vector3(3.0, 1.0, 0.5)
+	for i in 200:
+		a.animate(0.016, 0.0)
+	var across := a.gait.right_arm_angles()
+	Check.ok(across.x >= -Gait.ARM_ACROSS - 0.2, "leash to her left: the arm crosses the chest only so far (%.0f deg)" % rad_to_deg(across.x))
+	a.gait.hold_target = a.global_position + Vector3(-2.0, 0.9, 2.0)
+	for i in 200:
+		a.animate(0.016, 0.0)
+	var front_right := a.gait.right_arm_angles()
+	Check.ok(front_right.x > deg_to_rad(20.0) and front_right.x < deg_to_rad(70.0), "leash ahead to the right: the arm points there (%.0f deg)" % rad_to_deg(front_right.x))
 	a.gait.hold_target = Vector3.INF
 	a.gait.hammer()
 	Check.ok(a.gait.hammering(), "the hammering starts")
