@@ -140,3 +140,25 @@ static func disc(st: SurfaceTool, xf: Transform3D, rx: float, rz: float, segs: i
 		var a := TAU * float(s) / segs
 		var b := TAU * float(s + 1) / segs
 		tri(st, center, xf * Vector3(cos(a) * rx, 0, sin(a) * rz), xf * Vector3(cos(b) * rx, 0, sin(b) * rz), color, inside)
+
+
+## Faceted ring (a collar, a buckle ring). Lies in the local XZ plane around the Y axis;
+## `xf` places, turns and squashes it.
+static func torus(st: SurfaceTool, xf: Transform3D, ring_r: float, tube_r: float, segs: int, sides: int, color: Color) -> void:
+	var grid: Array[PackedVector3Array] = []
+	for i in range(segs):
+		var a := TAU * float(i) / segs
+		var row := PackedVector3Array()
+		for j in range(sides):
+			var b := TAU * float(j) / sides
+			var rr := ring_r + cos(b) * tube_r
+			row.append(xf * Vector3(cos(a) * rr, sin(b) * tube_r, sin(a) * rr))
+		grid.append(row)
+	for i in range(segs):
+		var i2 := (i + 1) % segs
+		var a := TAU * (float(i) + 0.5) / segs
+		var inside := xf * Vector3(cos(a) * ring_r, 0, sin(a) * ring_r)   # tube centre
+		for j in range(sides):
+			var j2 := (j + 1) % sides
+			tri(st, grid[i][j], grid[i2][j], grid[i][j2], color, inside)
+			tri(st, grid[i2][j], grid[i2][j2], grid[i][j2], color, inside)

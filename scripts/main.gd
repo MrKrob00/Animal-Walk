@@ -1,11 +1,12 @@
 extends Node3D
-## First scene: a snowy mountain clearing. The bunny holds TOFU's leash and TOFU drags her
+## First scene: a small island with a sand beach. The bunny holds TOFU's leash and TOFU drags her
 ## around (the player steers TOFU). The action button hammers a stake in: the leash is tied
 ## to it and the player steers the bunny. Next to the stake the button pulls it out again.
 
 const LEASH_GROUND := 3.0   ## how far apart the two ends may be on the ground, metres
 const LEASH_ROPE := 3.25   ## rope length in 3D (the ends are at different heights)
 const HAMMER_TIME := 0.6   ## the bunny stands still while she hammers, seconds
+const START := Vector2(0.0, -21.0)   ## on the north beach: the camera looks out over the sea
 
 var obstacles: Array[Vector3] = []   ## x, z, radius
 var rules := LeashRules.new()
@@ -14,7 +15,7 @@ var tofu: Actor
 var stake: Stake
 var leash: Leash
 var footprints: Footprints
-var puffs: SnowPuffs
+var puffs: Puffs
 var joystick: TouchJoystick
 var button: ActionButton
 var camera_rig: CameraRig
@@ -35,27 +36,30 @@ func _ready() -> void:
 	ground.material_override = PaperMesh.material()
 	add_child(ground)
 	obstacles = WorldBuilder.populate(self)
+	var sea := Water.new()
+	sea.name = "Sea"
+	add_child(sea)
 
 	footprints = Footprints.new()
 	add_child(footprints)
-	puffs = SnowPuffs.new()
+	puffs = Puffs.new()
 	add_child(puffs)
 
 	tofu = Actor.new()
 	tofu.name = "Tofu"
 	tofu.setup(Actor.TOFU)
 	tofu.world = self
-	tofu.position = Vector3(0, Terrain.height(0, 1.0), 1.0)
+	tofu.position = Vector3(0, Terrain.height(0, START.y), START.y)
 	add_child(tofu)
 
 	bunny = Actor.new()
 	bunny.name = "Bunny"
 	bunny.setup(Actor.BUNNY)
 	bunny.world = self
-	bunny.position = Vector3(-0.6, Terrain.height(-0.6, 3.2), 3.2)
+	bunny.position = Vector3(-0.6, Terrain.height(-0.6, START.y + 2.2), START.y + 2.2)
 	add_child(bunny)
 
-	_collar = tofu.attach_point(Actor.TOFU.collar, Vector3(0, -0.01, 0.06))   # front of the neck
+	_collar = tofu.add_collar()   # the brass ring at the front of TOFU's collar
 	_hand = bunny.attach_point(Actor.BUNNY.hand)
 
 	stake = Stake.new()
@@ -202,8 +206,7 @@ static func resolve_against(pos: Vector3, radius: float, obs: Array[Vector3]) ->
 		var l := d.length()
 		if l < min_d:
 			p = Vector2(o.x, o.y) + (d / l if l > 0.0001 else Vector2.RIGHT) * min_d
-	if p.length() > Terrain.PLAY_RADIUS:
-		p = p.normalized() * Terrain.PLAY_RADIUS
+	p = Terrain.keep_on_island(p)
 	return Vector3(p.x, pos.y, p.y)
 
 
@@ -211,33 +214,33 @@ func _build_light() -> void:
 	var env := Environment.new()
 	env.background_mode = Environment.BG_SKY
 	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color("#8fb4e8")
-	sky_mat.sky_horizon_color = Color("#dfe8f5")
-	sky_mat.ground_horizon_color = Color("#dfe8f5")
-	sky_mat.ground_bottom_color = Color("#c8d4ea")
+	sky_mat.sky_top_color = Color("#5aa7e6")
+	sky_mat.sky_horizon_color = Color("#cfe9f7")
+	sky_mat.ground_horizon_color = Color("#cfe9f7")
+	sky_mat.ground_bottom_color = Color("#7fc3d9")
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	env.sky = sky
-	# Shade is lit only by this cold lilac ambient: blue shadows on white snow.
+	# Shade is lit by a soft sky-blue ambient: cool shadows on warm sand.
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color("#a7b2de")
-	env.ambient_light_energy = 0.62
+	env.ambient_light_color = Color("#a9c4e4")
+	env.ambient_light_energy = 0.6
 	env.fog_enabled = true
-	env.fog_light_color = Color("#dce6f5")
-	env.fog_density = 0.006
+	env.fog_light_color = Color("#d4ecf6")
+	env.fog_density = 0.004
 	env.fog_sky_affect = 0.0
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
 
-	# Low warm sun: long shadows across the snow.
+	# A warm afternoon sun, high enough for short crisp shadows under the palms.
 	var sun := DirectionalLight3D.new()
 	sun.name = "Sun"
-	sun.rotation_degrees = Vector3(-34, -35, 0)
-	sun.light_color = Color("#fff1de")
-	sun.light_energy = 0.7
+	sun.rotation_degrees = Vector3(-50, -35, 0)
+	sun.light_color = Color("#fff3df")
+	sun.light_energy = 0.85
 	sun.shadow_enabled = true
-	sun.shadow_blur = 2.5
+	sun.shadow_blur = 1.5
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 	sun.directional_shadow_max_distance = 30.0
 	add_child(sun)

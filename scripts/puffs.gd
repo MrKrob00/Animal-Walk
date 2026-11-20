@@ -1,6 +1,6 @@
-class_name SnowPuffs
+class_name Puffs
 extends Node3D
-## Little bursts of snow under the paws. A small pool of one-shot CPU particles.
+## Little bursts of sand under the paws. A small pool of one-shot CPU particles.
 
 const POOL := 8
 
@@ -15,7 +15,7 @@ func _ready() -> void:
 	mesh.radial_segments = 5
 	mesh.rings = 2
 	var m := StandardMaterial3D.new()
-	m.albedo_color = Color("#f7f9fd")
+	m.albedo_color = Color("#efe0bb")
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mesh.material = m
 	var curve := Curve.new()

@@ -1,5 +1,5 @@
 extends SceneTree
-## Puts the downloaded models side by side in the snow scene and saves a screenshot.
+## Puts the downloaded models side by side in the game scene and saves a screenshot.
 ## xvfb-run -a -s "-screen 0 1920x1080x24" godot --path . --rendering-driver opengl3 --resolution 1600x900 --script tools/lineup.gd -- out.png
 
 const MODELS := [
@@ -28,7 +28,7 @@ func _run() -> void:
 	for n in [main.player, main.kit, main.leash]:
 		n.process_mode = Node.PROCESS_MODE_DISABLED
 		n.visible = false
-	# A flat snow stage, so the ground does not hide feet.
+	# A flat stage, so the ground does not hide feet.
 	var base := -INF
 	for gx in range(-6, 7):
 		for gz in range(-2, 9):

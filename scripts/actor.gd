@@ -59,7 +59,11 @@ const TOFU := {
 		"upper_arm_r": "upper_arm.R", "forearm_r": "forearm.R",
 		"tail": ["tail1", "tail2", "tail3"],
 	},
-	"collar": "neck",
+	# A red leather collar with a brass ring at the front (the leash clips to the ring).
+	# Numbers are in the rig's own units (skeleton space of tofu_rigged.glb, Y up, +Z forward),
+	# measured from the neck: it is about 0.17 wide around y = 3.26.
+	"collar": {"bone": "neck", "center": Vector3(0, 3.26, 0.035), "radius": Vector2(0.19, 0.175),
+		"tube": 0.035, "tilt": -0.12, "color": "#c8333f", "ring": "#e2b84f"},
 	"hide": [],
 }
 
@@ -136,6 +140,34 @@ func _feet_y() -> float:
 		if n.contains("foot") or n.contains("toe"):
 			y = minf(y, (_model.global_transform.affine_inverse() * (skeleton.global_transform * skeleton.get_bone_global_pose(i)).origin).y)
 	return y
+
+
+## Builds the collar from data.collar on its bone; returns the ring the leash clips to.
+func add_collar() -> Node3D:
+	var c: Dictionary = data.collar
+	var bone := Gait.find_bone(skeleton, c.bone)
+	var ba := BoneAttachment3D.new()
+	ba.bone_name = skeleton.get_bone_name(bone)
+	skeleton.add_child(ba)
+	# Things are made in skeleton space, then expressed relative to the bone at rest.
+	var to_bone := skeleton.get_bone_global_rest(bone).affine_inverse()
+	var tilt := Basis(Vector3.RIGHT, float(c.tilt))   # a touch lower at the front
+	var r: Vector2 = c.radius
+	var st := PaperMesh.begin()
+	PaperMesh.torus(st, Transform3D(tilt.scaled(Vector3(r.x / r.y, 1.0, 1.0)), c.center), r.y, float(c.tube), 18, 6, PaperMesh.col(c.color))
+	var front: Vector3 = c.center + tilt * Vector3(0, -0.01, r.y + float(c.tube) * 1.6)
+	PaperMesh.torus(st, Transform3D(Basis(Vector3.RIGHT, PI * 0.5) * Basis(Vector3.FORWARD, 0.0), front), float(c.tube) * 1.25, float(c.tube) * 0.35, 10, 4, PaperMesh.col(c.ring))
+	var mi := MeshInstance3D.new()
+	mi.name = "Collar"
+	mi.mesh = PaperMesh.commit(st)
+	mi.material_override = PaperMesh.material()
+	ba.add_child(mi)
+	mi.transform = to_bone
+	var clip := Marker3D.new()
+	clip.name = "LeashRing"
+	ba.add_child(clip)
+	clip.transform = to_bone * Transform3D(Basis.IDENTITY, front + Vector3(0, -float(c.tube) * 1.2, float(c.tube) * 0.3))
+	return clip
 
 
 ## Node to hang a leash on: a bone of this model, with an offset in metres.

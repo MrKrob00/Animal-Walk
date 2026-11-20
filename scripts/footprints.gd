@@ -1,18 +1,18 @@
 class_name Footprints
 extends MultiMeshInstance3D
-## Paw prints pressed into the snow. A ring buffer: the oldest print is reused.
+## Paw prints pressed into the sand. A ring buffer: the oldest print is reused.
 
 const MAX_PRINTS := 320
-const PRINT := "#d5dcef"
 
 var _next := 0
 
 
 func _ready() -> void:
 	var st := PaperMesh.begin()
-	PaperMesh.disc(st, Transform3D.IDENTITY, 0.075, 0.11, 8, PaperMesh.col(PRINT))
+	PaperMesh.disc(st, Transform3D.IDENTITY, 0.075, 0.11, 8, Color.WHITE)
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true   # each print takes a darker shade of the ground it is pressed into
 	mm.mesh = PaperMesh.commit(st)
 	mm.instance_count = MAX_PRINTS
 	var hidden := Transform3D(Basis.from_scale(Vector3.ZERO), Vector3(0, -100, 0))
@@ -28,6 +28,8 @@ func add(pos: Vector3, yaw: float, size := 1.0) -> void:
 	var y := Terrain.height(pos.x, pos.z) + 0.02
 	var basis := Basis(Vector3.UP, yaw).scaled(Vector3.ONE * size)
 	multimesh.set_instance_transform(_next, Transform3D(basis, Vector3(pos.x, y, pos.z)))
+	var ground := Terrain.ground_color(y - 0.02, Terrain.normal(pos.x, pos.z))
+	multimesh.set_instance_color(_next, Color(ground.r * 0.8, ground.g * 0.78, ground.b * 0.74))
 	_next = (_next + 1) % MAX_PRINTS
 
 
