@@ -42,11 +42,11 @@ func _run() -> void:
 	_pick_bones(meshes)
 	_join()
 	_axes()
-	_pose_t()
 	# The new model: Y up like the old one's skeleton placed it, scaled to about 1.6 m.
 	place_rot = sk.global_transform.basis.orthonormalized()
 	var tall: float = (_at("DEF-head") - _at("DEF-foot.L")).dot(up) * 1.1
 	place = Transform3D(place_rot.scaled(Vector3.ONE * (1.6 / tall)), Vector3.ZERO)
+	_pose_t()
 	var baked := {}
 	for m in meshes:
 		baked[m.name] = _bake(m)
@@ -190,6 +190,7 @@ func _pose_t() -> void:
 		_aim(_bone(chain[k]), _bone(chain[k + 1]), d - left * d.dot(left))
 	var ears := _at("DEF-ear01.L") - _at("DEF-ear01.R")
 	_turn(_bone("DEF-head"), _arc(ears.normalized(), left))
+	_stand_up()
 	for s in [["L", 1.0], ["R", -1.0]]:
 		var side: Vector3 = left * s[1]
 		var ua := _bone("DEF-upper_arm." + s[0])
@@ -243,6 +244,45 @@ func _pose_t() -> void:
 		var yaw := Quaternion(up, -atan2(flat.x, flat.y)) if flat.length() > 1e-5 else Quaternion.IDENTITY
 		_set_rot(_bone("DEF-foot." + s), yaw * feet_rest["DEF-foot." + s])
 		_set_rot(_bone("DEF-toe." + s), yaw * feet_rest["DEF-toe." + s])
+
+
+## Her rest leans the upper body back (neck and shoulders 12 cm behind the hips, the belly and
+## chest pushed out; the player showed a woman's T-pose from the side): the lower back bends
+## forward until the neck is over the hip joints; the ribcage keeps its tilt (tipping it hung
+## her chest). The neck and head
+## keep their turn, so she still looks ahead.
+const NECK_OVER_HIPS := 0.0   ## metres forward of the hip joints (side view)
+
+func _stand_up() -> void:
+	var bones := [_bone("DEF-spine.001"), _bone("DEF-spine.002"), _bone("DEF-spine.003")]
+	var share := [0.5, 0.5, -1.0]   # the lower back bends; the ribcage moves forward without tipping (its breasts keep their set)
+	var neck := _bone("DEF-neck")
+	var head := _bone("DEF-head")
+	var start := []
+	for b in bones:
+		start.append(_rot(b))
+	var neck_rot := _rot(neck)
+	var head_rot := _rot(head)
+	var axis := up.cross(fwd).normalized()      # turning about it tips "up" toward "fwd"
+	var metre := 1.0 / place.basis.get_scale().x   # skeleton units per metre (set before posing)
+	var offset := func() -> float:
+		var hips := (_at("DEF-thigh.L") + _at("DEF-thigh.R")) * 0.5
+		return (_at("DEF-neck") - hips).dot(fwd) / metre
+	var lo := -0.5
+	var hi := 0.5
+	for _i in 30:
+		var a := (lo + hi) * 0.5
+		var sum := 0.0
+		for k in bones.size():
+			sum += share[k]
+			_set_rot(bones[k], Quaternion(axis, a * sum) * start[k])   # parents first: the bends add up
+		_set_rot(neck, neck_rot)
+		_set_rot(head, head_rot)
+		if offset.call() < NECK_OVER_HIPS:
+			lo = a
+		else:
+			hi = a
+	print("spine bent forward %.1f deg; neck %.3f m from over the hips" % [rad_to_deg((lo + hi) * 0.5), offset.call()])
 
 
 ## Points each bone of a chain along `dir` (the last name is the tip, only aimed at).
