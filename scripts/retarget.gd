@@ -16,8 +16,8 @@ const AIM := {
 	"DEF-thigh.R": "DEF-shin.R", "DEF-shin.R": "DEF-foot.R", "DEF-foot.R": "DEF-toe.R",
 }
 
-## Source bone -> the left / right pair whose line is its side axis (the shoulders for the chest,
-## the hips for the pelvis): a spine bent sideways in our rest must not roll the shoulders.
+## Source bone -> the left / right pair whose line is its side axis: these bones are lined up
+## with the source only by turning that line about the vertical (`_yaw_align`).
 ## (Not the pelvis: a rest that stands on one leg tilts the pelvis and its hip line together.)
 const SIDE_PAIR := {
 	"DEF-spine.002": ["DEF-upper_arm.L", "DEF-upper_arm.R"], "DEF-spine.003": ["DEF-upper_arm.L", "DEF-upper_arm.R"],
@@ -69,7 +69,10 @@ func setup(skeleton: Skeleton3D, map: Dictionary, body: Node3D, our_hip_height: 
 			var d_dir: Vector3 = to_char * (skel.get_bone_global_rest(map[aim]).origin - skel.get_bone_global_rest(d).origin)
 			if s_dir.length() > 1e-6 and d_dir.length() > 1e-6:
 				var sides := _side_axes(sname, map)
-				a = _frame_align(d_dir.normalized(), s_dir.normalized(), sides[0], sides[1], SIDE_PAIR.has(sname))
+				if SIDE_PAIR.has(sname):
+					a = _yaw_align(sides[0], sides[1])
+				else:
+					a = _frame_align(d_dir.normalized(), s_dir.normalized(), sides[0], sides[1])
 		elif src.parent[i] >= 0 and align.has(src.parent[i]):
 			a = align[src.parent[i]]      # an end bone turns like its parent
 		align[i] = a
@@ -199,6 +202,18 @@ func arm_dirs(side: String) -> Array:
 ## Turns our bone onto the source's: its direction onto theirs, and also the body's side axis
 ## onto theirs (both characters face +Z with the side along X). Lining up the direction alone
 ## leaves the bone twisted about itself, and a twisted chest rolls the shoulders to one side.
+## For the upper spine: only turn our shoulder line onto the source's about the vertical. The
+## lean of our chest stays as the model has it: Chobby's chest bone leans 30 degrees back in her
+## rest while her ribcage is upright, and lining the bone up with the clip's tipped her chest
+## forward ~45 degrees (the player: her chest hung).
+static func _yaw_align(d_side: Vector3, s_side: Vector3) -> Quaternion:
+	var a := Vector2(d_side.x, d_side.z)
+	var b := Vector2(s_side.x, s_side.z)
+	if a.length() < 1e-4 or b.length() < 1e-4:
+		return Quaternion.IDENTITY
+	return Quaternion(Vector3.UP, -a.angle_to(b))
+
+
 static func _frame_align(d_dir: Vector3, s_dir: Vector3, d_ref := Vector3.RIGHT, s_ref := Vector3.RIGHT, side_first := false) -> Quaternion:
 	if absf(d_dir.dot(d_ref)) > 0.8 or absf(s_dir.dot(s_ref)) > 0.8:
 		d_ref = Vector3.BACK       # a bone along the side (an arm in a T-pose): use forward instead
