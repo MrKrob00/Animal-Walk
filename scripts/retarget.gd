@@ -29,6 +29,7 @@ var idle_time := 0.0
 var speeds := {}       ## clip -> ground speed at our size, m/s
 var _contact := {}     ## clip -> where the left foot lands, 0..1
 var _hips_src := -1
+var _last := []        ## the source's global pose this frame (for arm directions)
 var _hips_rest := Vector3.ZERO
 
 
@@ -121,6 +122,7 @@ func apply(delta: float, speed: float) -> Array:
 		mix.append([c, fposmod(phase + _contact[c], 1.0) * len, w[c]])
 	var s := src.sample(mix)
 	var g := src.globals(s[0], s[1])
+	_last = g
 	var done := {}
 	for p in pairs:
 		var i: int = p[0]
@@ -146,6 +148,17 @@ func apply(delta: float, speed: float) -> Array:
 		elif before < 0.5 and phase >= 0.5:
 			landed = -1         # the right foot lands
 	return [hips_off, landed]
+
+
+## The clip's upper arm and forearm directions this frame (character space): [upper, fore].
+## `side` is "L" or "R".
+func arm_dirs(side: String) -> Array:
+	if _last.is_empty():
+		return []
+	var sh: Vector3 = _last[src.bone("DEF-upper_arm." + side)].origin
+	var el: Vector3 = _last[src.bone("DEF-forearm." + side)].origin
+	var wr: Vector3 = _last[src.bone("DEF-hand." + side)].origin
+	return [(el - sh).normalized(), (wr - el).normalized()]
 
 
 static func _arc(a: Vector3, b: Vector3) -> Quaternion:

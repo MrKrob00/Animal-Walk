@@ -53,6 +53,7 @@ var _fwd_sk := Vector3.BACK
 var _body: Node3D
 var rt: Retarget            ## real clips, when the map has "clips"; else the old procedural walk
 var _offset := Vector3.ZERO ## body offset from the clips' hips (metres, character space)
+var _clip_arms := false     ## arms aimed like the clip's, from a natural arms-down pose
 
 const HAMMER_TIME := 0.62
 const TIRE_TIME := 4.0      ## seconds of being dragged at a run until fully worn out
@@ -117,9 +118,12 @@ func setup(skel: Skeleton3D, map: Dictionary, body: Node3D) -> void:
 		var pel := _one("pelvis")
 		var hip_h: float = (skel.global_transform * skel.get_bone_global_rest(pel).origin).y - body.global_position.y
 		rt.setup(skel, cmap, body, hip_h)
-	if map.get("arms_down", false) and rt == null:
+	_clip_arms = map.get("clip_arms", false) and rt != null
+	if map.get("arms_down", false) and (rt == null or _clip_arms):
 		for s in [["l", 1.0], ["r", -1.0]]:
 			_arm_down(s[0], _side_sk * s[1])
+			if map.has("fingers"):
+				_palm_to_body(s[0], _side_sk * s[1], map.fingers)
 	if map.has("fingers"):
 		for s in ["L", "R"]:
 			_relax_fingers(map.fingers, s)
@@ -201,6 +205,8 @@ func update(delta: float, measured: float) -> int:
 		var res := rt.apply(delta, speed * (1.0 + 0.2 * fatigue * r0))
 		_offset = res[0]
 		clip_landed = res[1]
+		if _clip_arms:
+			_aim_arms_like_clip()
 		phase = rt.phase * TAU
 	else:
 		phase = fmod(phase + speed / (_stride() * (1.0 - 0.22 * fatigue * r0)) * TAU * delta, TAU)
@@ -564,6 +570,79 @@ func right_arm_angles() -> Vector2:
 	var hand := _one("hand_r")
 	var d := (skeleton.get_bone_global_pose(hand).origin - skeleton.get_bone_global_pose(ua).origin).normalized()
 	return Vector2(atan2(d.dot(-_side_sk), d.dot(_fwd_sk)), asin(clampf(d.dot(_up_sk), -1.0, 1.0)))
+
+
+## The hanging arm's palm should face the thigh, as people's do: twist the forearm about its own
+## axis (shared over its twist segments so the wrist skin does not wring) until the palm faces
+## the body, a little to the back, and straighten the wrist in line with the forearm.
+func _palm_to_body(s: String, out_sk: Vector3, f: Dictionary) -> void:
+	var fa := _one("forearm_" + s)
+	var hand := _one("hand_" + s)
+	var side := s.to_upper()
+	var idx := find_bone(skeleton, f.finger % ["index", 1, side])
+	var pinky := find_bone(skeleton, f.finger % ["pinky", 1, side])
+	var mid := find_bone(skeleton, f.finger % ["middle", 1, side])
+	var thumb := find_bone(skeleton, f.thumb % [3, side])
+	if fa < 0 or hand < 0 or idx < 0 or pinky < 0 or mid < 0 or thumb < 0:
+		return
+	# The twist segments between the forearm and the hand.
+	var chain := []
+	var b := skeleton.get_bone_parent(hand)
+	while b >= 0 and b != fa:
+		chain.push_front(b)
+		b = skeleton.get_bone_parent(b)
+	chain.push_front(fa)
+	skeleton.set_bone_pose_rotation(fa, _q[fa])
+	var gp := func(i: int) -> Vector3: return skeleton.get_bone_global_pose(i).origin
+	# Straighten the wrist: the hand points along the forearm.
+	var axis: Vector3 = (gp.call(hand) - gp.call(fa)).normalized()
+	var g_h := skeleton.get_bone_global_pose(hand).basis.orthonormalized()
+	var hq := _arc((gp.call(mid) - gp.call(hand)).normalized(), axis)
+	_q[hand] = skeleton.get_bone_pose_rotation(hand) * Quaternion(g_h.inverse() * Basis(hq) * g_h)
+	skeleton.set_bone_pose_rotation(hand, _q[hand])
+	# Palm normal now, and where it should face.
+	var across: Vector3 = gp.call(idx) - gp.call(pinky)
+	var normal := across.cross(axis).normalized()
+	if normal.dot(gp.call(thumb) - (gp.call(idx) + gp.call(pinky)) * 0.5) < 0.0:
+		normal = -normal
+	var want := -out_sk - _fwd_sk * 0.35
+	want = (want - axis * want.dot(axis)).normalized()
+	var have := (normal - axis * normal.dot(axis)).normalized()
+	var angle := atan2(have.cross(want).dot(axis), have.dot(want))
+	for seg in chain:
+		var g := skeleton.get_bone_global_pose(seg).basis.orthonormalized()
+		var turn := Quaternion((g.inverse() * axis).normalized(), angle / chain.size())
+		var now := skeleton.get_bone_pose_rotation(seg) * turn
+		skeleton.set_bone_pose_rotation(seg, now)
+		if seg == fa:
+			_q[fa] = now
+
+
+## Arms for a model whose rest is far from the clip's (Chobby's V-sign): instead of copying the
+## clip's arm rotations (which carry the clip's twist and wring the wrists), start from a
+## natural arms-down pose and swing the upper arm and the forearm by the shortest turn to point
+## where the clip's point. The swing comes from the clip; the twist stays natural.
+func _aim_arms_like_clip() -> void:
+	var to_sk := rt.to_char.inverse()
+	for s in [["l", "L"], ["r", "R"]]:
+		var ua := _one("upper_arm_" + s[0])
+		var fa := _one("forearm_" + s[0])
+		var hand := _one("hand_" + s[0])
+		var dirs := rt.arm_dirs(s[1])
+		if ua < 0 or fa < 0 or hand < 0 or dirs.is_empty():
+			continue
+		skeleton.set_bone_pose_rotation(ua, _q[ua])
+		skeleton.set_bone_pose_rotation(fa, _q[fa])
+		var g_ua := skeleton.get_bone_global_pose(ua)
+		var g_fa := skeleton.get_bone_global_pose(fa)
+		var q1 := _arc((g_fa.origin - g_ua.origin).normalized(), (to_sk * dirs[0]).normalized())
+		var gb1 := g_ua.basis.orthonormalized()
+		skeleton.set_bone_pose_rotation(ua, _q[ua] * Quaternion(gb1.inverse() * Basis(q1) * gb1))
+		g_fa = skeleton.get_bone_global_pose(fa)
+		var g_h := skeleton.get_bone_global_pose(hand)
+		var q2 := _arc((g_h.origin - g_fa.origin).normalized(), (to_sk * dirs[1]).normalized())
+		var gb2 := g_fa.basis.orthonormalized()
+		skeleton.set_bone_pose_rotation(fa, _q[fa] * Quaternion(gb2.inverse() * Basis(q2) * gb2))
 
 
 ## Base pose for models whose rest pose has the arms up: hang each arm down at the side,

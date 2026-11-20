@@ -23,13 +23,12 @@ const BUNNY := {
 		"tail": ["DEF-spine.004"],
 		"soft": [["DEF-breast01.L", "DEF-breast04.L"], ["DEF-breast01.R", "DEF-breast04.R"]],
 		"arms_down": true,
+		"clip_arms": true,   # arms aimed like the clip's from arms-down (her V-sign rest wrings copied arms)
 		"tires": true,
 		# Real clips (tools: ClipSource / Retarget): source bone -> our bone.
 		"clips": {
 			"DEF-hips": "DEF-spine", "DEF-spine.001": "DEF-spine.001", "DEF-spine.002": "DEF-spine.002",
 			"DEF-spine.003": "DEF-spine.003", "DEF-neck": "DEF-neck", "DEF-head": "DEF-head",
-			"DEF-shoulder.L": "DEF-shoulder.L", "DEF-upper_arm.L": "DEF-upper_arm.L", "DEF-forearm.L": "DEF-forearm.L", "DEF-hand.L": "DEF-hand.L",
-			"DEF-shoulder.R": "DEF-shoulder.R", "DEF-upper_arm.R": "DEF-upper_arm.R", "DEF-forearm.R": "DEF-forearm.R", "DEF-hand.R": "DEF-hand.R",
 			"DEF-thigh.L": "DEF-thigh.L", "DEF-shin.L": "DEF-shin.L", "DEF-foot.L": "DEF-foot.L", "DEF-toe.L": "DEF-toe.L",
 			"DEF-thigh.R": "DEF-thigh.R", "DEF-shin.R": "DEF-shin.R", "DEF-foot.R": "DEF-foot.R", "DEF-toe.R": "DEF-toe.R",
 		},
