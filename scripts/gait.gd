@@ -119,6 +119,12 @@ func setup(skel: Skeleton3D, map: Dictionary, body: Node3D) -> void:
 		var hip_h: float = (skel.global_transform * skel.get_bone_global_rest(pel).origin).y - body.global_position.y
 		rt.setup(skel, cmap, body, hip_h, map.get("torso_swing", 1.0))
 	_clip_arms = map.get("clip_arms", false) and rt != null
+	_feminine = float(map.get("feminine", 0.0)) if rt != null else 0.0
+	var tl := _one("thigh_l")
+	var tr := _one("thigh_r")
+	if tl >= 0 and tr >= 0:
+		var d: Vector3 = body.global_basis.inverse() * (skel.global_transform.basis * (skel.get_bone_global_rest(tl).origin - skel.get_bone_global_rest(tr).origin))
+		_left_char = Vector3(d.x, 0.0, d.z).normalized()
 	if map.get("arms_down", false) and (rt == null or _clip_arms):
 		for s in [["l", 1.0], ["r", -1.0]]:
 			_arm_down(s[0], _side_sk * s[1])
@@ -205,6 +211,8 @@ func update(delta: float, measured: float) -> int:
 		var res := rt.apply(delta, speed * (1.0 + 0.2 * fatigue * r0))
 		_offset = res[0]
 		clip_landed = res[1]
+		if _feminine > 0.0:
+			_feminine_walk()
 		if _clip_arms:
 			_aim_arms_like_clip()
 		phase = rt.phase * TAU
@@ -654,6 +662,74 @@ func _twist_palm(s: String) -> void:
 		var g := skeleton.get_bone_global_pose(seg).basis.orthonormalized()
 		var turn := Quaternion((g.inverse() * axis).normalized(), angle / chain.size())
 		skeleton.set_bone_pose_rotation(seg, skeleton.get_bone_pose_rotation(seg) * turn)
+
+
+## A woman's walk on top of the clips (the clips are a man's; the player found her walk odd):
+## the hips sway (the pelvis moves over the standing leg, its free side drops and swings
+## forward with the stepping leg), the steps narrow toward one line, the chest is carried up
+## and steady. The legs are turned at the hips so each foot stays where the clip put it (less
+## the sway): planted feet do not slide. Less of it in a run. FEM_* set how much.
+const FEM_SHIFT := 0.028   ## hips over the standing leg, metres (walking)
+const FEM_ROLL := 0.10     ## free side of the pelvis drops, radians
+const FEM_YAW := 0.12      ## pelvis turns with the stepping leg, radians
+const FEM_NARROW := 0.035  ## each foot nearer the middle line, metres
+const FEM_CHEST := 0.07    ## chest carried up, radians
+
+var _feminine := 0.0
+var _left_char := Vector3.RIGHT   ## the body's left, character space
+
+
+func _feminine_walk() -> void:
+	var pel := _one("pelvis")
+	var spine := _ids("spine")
+	var legs := [[_one("thigh_l"), _one("foot_l"), 1.0], [_one("thigh_r"), _one("foot_r"), -1.0]]
+	if pel < 0 or spine.is_empty() or legs[0][0] < 0 or legs[1][0] < 0:
+		return
+	var move := smoothstep(0.05, walk_speed * 0.5, speed)
+	var r := clampf((speed - walk_speed) / maxf(run_speed - walk_speed, 0.01), 0.0, 1.0)
+	var k := _feminine * move * (1.0 - 0.6 * r)
+	if k <= 0.001:
+		return
+	var ph := rt.phase * TAU          # 0 = the left foot lands; the left leg stands until 0.5
+	var stand := sin(ph)               # +1 mid-stance on the left, -1 on the right
+	# Character space -> skeleton space (directions; metres -> skeleton units).
+	var to_sk := skeleton.global_transform.basis.inverse() * _body.global_basis
+	var left_sk: Vector3 = (to_sk * _left_char)
+	var feet := []
+	for leg in legs:
+		feet.append(skeleton.get_bone_global_pose(leg[1]).origin)
+	# The pelvis: its free side drops and swings forward; the chest stays level and steady.
+	var spin := Quaternion(_fwd_sk, FEM_ROLL * k * stand) * Quaternion(_up_sk, FEM_YAW * k * stand)
+	var first: int = spine[0]
+	var keep := skeleton.get_bone_global_pose(first).basis.orthonormalized().get_rotation_quaternion()
+	var g_pel := skeleton.get_bone_global_pose(pel).basis.orthonormalized().get_rotation_quaternion()
+	_set_global_rot(pel, spin * g_pel)
+	_set_global_rot(first, Quaternion(_up_sk, FEM_YAW * k * stand * 0.35) * keep)   # a little of the turn goes up the spine
+	# The hips over the standing leg.
+	var shift := _left_char * (FEM_SHIFT * k * stand)
+	_offset += shift
+	var shift_sk: Vector3 = to_sk * shift
+	# Each foot back where the clip put it (less the sway), a little nearer the middle line.
+	for i in 2:
+		var thigh: int = legs[i][0]
+		var hip := skeleton.get_bone_global_pose(thigh).origin
+		var now := skeleton.get_bone_global_pose(legs[i][1]).origin
+		var want: Vector3 = feet[i] - shift_sk - left_sk * (legs[i][2] * FEM_NARROW * k)
+		var q := _arc((now - hip).normalized(), (want - hip).normalized())
+		var g := skeleton.get_bone_global_pose(thigh).basis.orthonormalized().get_rotation_quaternion()
+		_set_global_rot(thigh, q * g)
+	# The chest carried up, the head level.
+	_pose(spine[spine.size() - 1], -FEM_CHEST * _feminine, 0.0, 0.0)
+	_pose(_one("head"), FEM_CHEST * 0.6 * _feminine, 0.0, 0.0)
+
+
+## Sets a bone's rotation in skeleton space (its children follow).
+func _set_global_rot(b: int, q: Quaternion) -> void:
+	var par := skeleton.get_bone_parent(b)
+	var pr := Quaternion.IDENTITY
+	if par >= 0:
+		pr = skeleton.get_bone_global_pose(par).basis.orthonormalized().get_rotation_quaternion()
+	skeleton.set_bone_pose_rotation(b, (pr.inverse() * q).normalized())
 
 
 ## Arms for a model whose rest is far from the clip's (Chobby's V-sign): instead of copying the

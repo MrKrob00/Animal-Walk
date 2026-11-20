@@ -12,6 +12,8 @@ const BUNNY := {
 	"path": "res://assets/free_download_-_chobby_bun.glb", "height": 1.6,
 	"walk": 1.5, "run": 3.4, "stride": 1.45, "run_stride": 2.5, "radius": 0.3,
 	# Her top and shorts take the skin's bone weights, so no gap opens when the chest moves.
+	# The leash lies over these instead of passing through: [from bone, to bone, radius m, reach past "to" m].
+	"capsules": [["DEF-spine", "DEF-spine.003", 0.14, 0.05], ["DEF-thigh.L", "DEF-thigh.R", 0.07, 0.0]],
 	"cloth": {"body": "Object_11", "items": ["Object_670", "Object_672"],
 		"skip": ["DEF-upper_arm", "DEF-forearm", "DEF-hand", "DEF-f_", "DEF-thumb", "DEF-palm"]},
 	"bones": {
@@ -26,7 +28,7 @@ const BUNNY := {
 		"tail": ["DEF-spine.004"],
 		"soft": [["DEF-breast01.L", "DEF-breast04.L"], ["DEF-breast01.R", "DEF-breast04.R"]],
 		"arms_down": true,
-		"clip_arms": true, "torso_swing": 0.5,   # arms aimed like the clip's from arms-down (her V-sign rest wrings copied arms); half the clips' torso swing
+		"clip_arms": true, "torso_swing": 0.5, "feminine": 1.0,   # arms aimed like the clip's from arms-down (her V-sign rest wrings copied arms); half the clips' torso swing
 		"tires": true,
 		# Real clips (tools: ClipSource / Retarget): source bone -> our bone.
 		"clips": {
