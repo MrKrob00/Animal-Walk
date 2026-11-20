@@ -362,6 +362,8 @@ func _stride() -> float:
 const SOFT_FREQ := 2.0     ## oscillations per second
 const SOFT_DAMP := 0.27    ## 0 = endless wobble, 1 = no overshoot
 const SOFT_MAX := 0.024     ## largest lag, as a share of the character's height
+const SOFT_GAIN := 0.6     ## share of the spring's lag shown: the clips swing the body three times
+                           ## more than the old walk did, this keeps the chest's travel as it was
 
 func _soft_parts(delta: float) -> void:
 	if _soft.is_empty():
@@ -393,10 +395,18 @@ func _soft_parts(delta: float) -> void:
 			var a_now := from.lerp(anchor, float(i + 1) / steps)
 			v += (w * w * (a_now - x) - 2.0 * SOFT_DAMP * w * (v - v_anchor)) * dt
 			x += v * dt
-		var lag := (x - anchor).limit_length(limit)
-		x = anchor + lag
+		var lag := x - anchor
+		var reach := limit / SOFT_GAIN
+		if lag.length() > reach:
+			# At the limit: stop there, and lose the speed that pushes further out.
+			var out := lag.normalized()
+			lag = out * reach
+			x = anchor + lag
+			var rel := v - v_anchor
+			v -= out * maxf(rel.dot(out), 0.0)
 		part[2] = x
 		part[3] = v
+		x = anchor + lag * SOFT_GAIN
 		var base := (to_sk * anchor) - g_root.origin
 		var moved := (to_sk * x) - g_root.origin
 		if base.length() < 1e-6:
