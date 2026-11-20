@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://gy4esuccy5nc"
-path="res://.godot/imported/farmer_dog_6.png-5d24e66b4da848a5a4f488b33d858e0d.ctex"
+path.etc2="res://.godot/imported/farmer_dog_6.png-5d24e66b4da848a5a4f488b33d858e0d.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "071773917a3f43d53f4ab5a38ffadd16"
@@ -14,11 +15,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/farmer_dog_6.png"
-dest_files=["res://.godot/imported/farmer_dog_6.png-5d24e66b4da848a5a4f488b33d858e0d.ctex"]
+dest_files=["res://.godot/imported/farmer_dog_6.png-5d24e66b4da848a5a4f488b33d858e0d.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/high_quality_mode=0
 compress/lossy_quality=0.7
@@ -43,4 +44,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dt2m6ca68kadj"
-path="res://.godot/imported/stylized_deer_character_0.png-46f58724a2eb42d87c0af298d9c8149c.ctex"
+path.etc2="res://.godot/imported/stylized_deer_character_0.png-46f58724a2eb42d87c0af298d9c8149c.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "687e6f6c7e0b1921879de6e7b706bd4f"
@@ -14,11 +15,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/stylized_deer_character_0.png"
-dest_files=["res://.godot/imported/stylized_deer_character_0.png-46f58724a2eb42d87c0af298d9c8149c.ctex"]
+dest_files=["res://.godot/imported/stylized_deer_character_0.png-46f58724a2eb42d87c0af298d9c8149c.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/high_quality_mode=0
 compress/lossy_quality=0.7
@@ -43,4 +44,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0
