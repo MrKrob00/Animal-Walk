@@ -4,6 +4,7 @@ extends MeshInstance3D
 
 const POINTS := 16
 const WIDTH := 0.02
+const SMOOTH_PASSES := 3
 const GRAVITY := Vector3(0, -9.8, 0)
 
 var a: Node3D          ## anchor at one end (the wolf's hand)
@@ -97,14 +98,30 @@ func _process(_delta: float) -> void:
 	if cam == null:
 		return
 	var eye := cam.global_position
+	var line := smooth(pts)
+	var n := line.size()
 	_im.clear_surfaces()
 	_im.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
-	for i in range(POINTS):
-		var dir := pts[mini(i + 1, POINTS - 1)] - pts[maxi(i - 1, 0)]
-		var to_eye := (eye - pts[i]).normalized()
+	for i in range(n):
+		var dir := line[mini(i + 1, n - 1)] - line[maxi(i - 1, 0)]
+		var to_eye := (eye - line[i]).normalized()
 		var side := dir.cross(to_eye).normalized() * WIDTH
 		_im.surface_set_normal(to_eye)
-		_im.surface_add_vertex(pts[i] + side)
+		_im.surface_add_vertex(line[i] + side)
 		_im.surface_set_normal(to_eye)
-		_im.surface_add_vertex(pts[i] - side)
+		_im.surface_add_vertex(line[i] - side)
 	_im.surface_end()
+
+
+## The rope drawn as a smooth curve near the simulated points (corners cut three times, Chaikin),
+## so a slack rope bends round instead of folding into sharp corners. The ends stay put.
+static func smooth(p: PackedVector3Array) -> PackedVector3Array:
+	var line := p
+	for _pass in SMOOTH_PASSES:
+		var out := PackedVector3Array([line[0]])
+		for i in range(line.size() - 1):
+			out.append(line[i].lerp(line[i + 1], 0.25))
+			out.append(line[i].lerp(line[i + 1], 0.75))
+		out.append(line[line.size() - 1])
+		line = out
+	return line
