@@ -117,7 +117,7 @@ func setup(skel: Skeleton3D, map: Dictionary, body: Node3D) -> void:
 		rt = Retarget.new()
 		var pel := _one("pelvis")
 		var hip_h: float = (skel.global_transform * skel.get_bone_global_rest(pel).origin).y - body.global_position.y
-		rt.setup(skel, cmap, body, hip_h)
+		rt.setup(skel, cmap, body, hip_h, map.get("torso_swing", 1.0))
 	_clip_arms = map.get("clip_arms", false) and rt != null
 	if map.get("arms_down", false) and (rt == null or _clip_arms):
 		for s in [["l", 1.0], ["r", -1.0]]:
@@ -610,6 +610,37 @@ func _palm_to_body(s: String, out_sk: Vector3, f: Dictionary) -> void:
 	var hq := _arc((gp.call(mid) - gp.call(hand)).normalized(), axis)
 	_q[hand] = skeleton.get_bone_pose_rotation(hand) * Quaternion(g_h.inverse() * Basis(hq) * g_h)
 	skeleton.set_bone_pose_rotation(hand, _q[hand])
+	for seg in chain:
+		_q[seg] = skeleton.get_bone_pose_rotation(seg)
+	_palm_info[s] = [fa, hand, chain, idx, pinky, thumb, out_sk]
+	_twist_palm(s)
+	_q[fa] = skeleton.get_bone_pose_rotation(fa)
+	for seg in chain:
+		_q[seg] = skeleton.get_bone_pose_rotation(seg)
+
+
+var _palm_info := {}   ## side -> [forearm, hand, twist chain, index, pinky, thumb, outward (skeleton space)]
+
+
+## Twists the forearm (over its twist segments, from their base) so the palm faces the thigh,
+## a little to the back. Run after anything that swings the arm, so the chest's turn or the
+## swing never leaves the palm facing out.
+func _twist_palm(s: String) -> void:
+	var info: Array = _palm_info.get(s, [])
+	if info.is_empty():
+		return
+	var fa: int = info[0]
+	var hand: int = info[1]
+	var chain: Array = info[2]
+	for seg in chain:
+		if seg != fa:
+			skeleton.set_bone_pose_rotation(seg, _q[seg])
+	var gp := func(i: int) -> Vector3: return skeleton.get_bone_global_pose(i).origin
+	var axis: Vector3 = (gp.call(hand) - gp.call(fa)).normalized()
+	var idx: int = info[3]
+	var pinky: int = info[4]
+	var thumb: int = info[5]
+	var out_sk: Vector3 = info[6]
 	# Palm normal now, and where it should face.
 	var across: Vector3 = gp.call(idx) - gp.call(pinky)
 	var normal := across.cross(axis).normalized()
@@ -622,10 +653,7 @@ func _palm_to_body(s: String, out_sk: Vector3, f: Dictionary) -> void:
 	for seg in chain:
 		var g := skeleton.get_bone_global_pose(seg).basis.orthonormalized()
 		var turn := Quaternion((g.inverse() * axis).normalized(), angle / chain.size())
-		var now := skeleton.get_bone_pose_rotation(seg) * turn
-		skeleton.set_bone_pose_rotation(seg, now)
-		if seg == fa:
-			_q[fa] = now
+		skeleton.set_bone_pose_rotation(seg, skeleton.get_bone_pose_rotation(seg) * turn)
 
 
 ## Arms for a model whose rest is far from the clip's (Chobby's V-sign): instead of copying the
@@ -653,6 +681,7 @@ func _aim_arms_like_clip() -> void:
 		var q2 := _arc((g_h.origin - g_fa.origin).normalized(), (to_sk * dirs[1]).normalized())
 		var gb2 := g_fa.basis.orthonormalized()
 		skeleton.set_bone_pose_rotation(fa, _q[fa] * Quaternion(gb2.inverse() * Basis(q2) * gb2))
+		_twist_palm(s[0])
 
 
 ## Base pose for models whose rest pose has the arms up: hang each arm down at the side,

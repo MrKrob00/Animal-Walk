@@ -15,6 +15,7 @@ var rest_local: Array[Transform3D] = []
 var rest_global: Array[Transform3D] = []
 var clips := {}                    ## name -> Animation
 var _tracks := {}                  ## clip name -> {bone: [rotation track, position track]}
+var _mean := {}                    ## clip name -> {bone: its average local rotation over the clip}
 
 
 static func shared() -> ClipSource:
@@ -61,9 +62,33 @@ func bone(bone_name: String) -> int:
 	return names.find(bone_name)
 
 
+## Average local rotation of each rotated bone over a clip (for calming a swing around it).
+func mean_rotations(clip: String) -> Dictionary:
+	if _mean.has(clip):
+		return _mean[clip]
+	var anim: Animation = clips[clip]
+	var out := {}
+	for b in _tracks[clip]:
+		var tr: int = _tracks[clip][b][0]
+		if tr < 0:
+			continue
+		var first := anim.rotation_track_interpolate(tr, 0.0)
+		var sum := Vector4.ZERO
+		for k in 48:
+			var q := anim.rotation_track_interpolate(tr, anim.length * k / 48.0)
+			if q.dot(first) < 0.0:
+				q = -q
+			sum += Vector4(q.x, q.y, q.z, q.w)
+		sum = sum.normalized()
+		out[b] = Quaternion(sum.x, sum.y, sum.z, sum.w)
+	_mean[clip] = out
+	return out
+
+
 ## Local rotations and positions of all bones, blended from `mix`: Array of [clip, time, weight].
+## `calm`: bone -> share of the clip's swing kept around its average (1 = as animated).
 ## Returns [Array[Quaternion], Array[Vector3]].
-func sample(mix: Array) -> Array:
+func sample(mix: Array, calm := {}) -> Array:
 	var rot: Array[Quaternion] = []
 	var pos: Array[Vector3] = []
 	rot.resize(names.size())
@@ -84,6 +109,8 @@ func sample(mix: Array) -> Array:
 			var tr: Array = map[b]
 			if tr[0] >= 0:
 				var q := anim.rotation_track_interpolate(tr[0], t)
+				if calm.has(b):
+					q = mean_rotations(m[0])[b].slerp(q, calm[b])
 				rot[b] = q if acc == 0.0 else rot[b].slerp(q, share)
 			if tr[1] >= 0:
 				var p := anim.position_track_interpolate(tr[1], t)

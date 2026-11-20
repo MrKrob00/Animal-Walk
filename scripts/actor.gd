@@ -23,7 +23,7 @@ const BUNNY := {
 		"tail": ["DEF-spine.004"],
 		"soft": [["DEF-breast01.L", "DEF-breast04.L"], ["DEF-breast01.R", "DEF-breast04.R"]],
 		"arms_down": true,
-		"clip_arms": true,   # arms aimed like the clip's from arms-down (her V-sign rest wrings copied arms)
+		"clip_arms": true, "torso_swing": 0.5,   # arms aimed like the clip's from arms-down (her V-sign rest wrings copied arms); half the clips' torso swing
 		"tires": true,
 		# Real clips (tools: ClipSource / Retarget): source bone -> our bone.
 		"clips": {

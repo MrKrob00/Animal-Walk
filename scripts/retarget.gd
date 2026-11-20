@@ -16,7 +16,20 @@ const AIM := {
 	"DEF-thigh.R": "DEF-shin.R", "DEF-shin.R": "DEF-foot.R", "DEF-foot.R": "DEF-toe.R",
 }
 
+## Source bone -> the left / right pair whose line is its side axis (the shoulders for the chest,
+## the hips for the pelvis): a spine bent sideways in our rest must not roll the shoulders.
+## (Not the pelvis: a rest that stands on one leg tilts the pelvis and its hip line together.)
+const SIDE_PAIR := {
+	"DEF-spine.002": ["DEF-upper_arm.L", "DEF-upper_arm.R"], "DEF-spine.003": ["DEF-upper_arm.L", "DEF-upper_arm.R"],
+	"DEF-neck": ["DEF-upper_arm.L", "DEF-upper_arm.R"],
+}
+
 const LOCOMOTION := ["Walk", "Jog_Fwd", "Sprint"]
+
+## The library's jog throws the torso about like a cartoon (the chest rolls 25 degrees each way and
+## twists 35): a character can keep only a share of that swing around the clip's average pose
+## ("torso_swing" in its map; the bunny keeps half, at the player's word that she sways oddly).
+const TORSO := ["DEF-hips", "DEF-spine.001", "DEF-spine.002", "DEF-spine.003", "DEF-neck", "DEF-head"]
 
 var src: ClipSource
 var skel: Skeleton3D
@@ -31,10 +44,11 @@ var _contact := {}     ## clip -> where the left foot lands, 0..1
 var _hips_src := -1
 var _last := []        ## the source's global pose this frame (for arm directions)
 var _hips_rest := Vector3.ZERO
+var _calm := {}         ## source bone -> share of the clip's swing kept
 
 
 ## `map`: source bone name -> our bone index. `body` faces +Z.
-func setup(skeleton: Skeleton3D, map: Dictionary, body: Node3D, our_hip_height: float) -> void:
+func setup(skeleton: Skeleton3D, map: Dictionary, body: Node3D, our_hip_height: float, torso_swing := 1.0) -> void:
 	src = ClipSource.shared()
 	skel = skeleton
 	var rel := (body.global_transform.basis.inverse() * skel.global_transform.basis).orthonormalized()
@@ -54,16 +68,37 @@ func setup(skeleton: Skeleton3D, map: Dictionary, body: Node3D, our_hip_height: 
 			var s_dir := src.rest_global[src.bone(aim)].origin - src.rest_global[i].origin
 			var d_dir: Vector3 = to_char * (skel.get_bone_global_rest(map[aim]).origin - skel.get_bone_global_rest(d).origin)
 			if s_dir.length() > 1e-6 and d_dir.length() > 1e-6:
-				a = Quaternion(_arc(d_dir.normalized(), s_dir.normalized()))
+				var sides := _side_axes(sname, map)
+				a = _frame_align(d_dir.normalized(), s_dir.normalized(), sides[0], sides[1], SIDE_PAIR.has(sname))
 		elif src.parent[i] >= 0 and align.has(src.parent[i]):
 			a = align[src.parent[i]]      # an end bone turns like its parent
 		align[i] = a
 		var d_rest := to_char * skel.get_bone_global_rest(d).basis.orthonormalized().get_rotation_quaternion()
 		pairs.append([i, d, a, d_rest])
 	leg_scale = sqrt(scale * _leg_length_ratio(map))   # between hip height and leg length: least slide for both
+	if torso_swing < 1.0:
+		for n in TORSO:
+			_calm[src.bone(n)] = torso_swing
 	for c in LOCOMOTION:
 		speeds[c] = src.ground_speed(c) * leg_scale
 		_contact[c] = src.left_contact(c)
+
+
+## [our side axis, the source's] for a bone (character space): the line between its left / right
+## pair where both skeletons have one, else the character's side (X).
+func _side_axes(sname: String, map: Dictionary) -> Array:
+	var pair: Array = SIDE_PAIR.get(sname, [])
+	if pair.is_empty():
+		return [Vector3.RIGHT, Vector3.RIGHT]
+	var ours := []
+	for n in pair:
+		var d: int = map.get(n, Gait.find_bone(skel, n))
+		if d < 0:
+			return [Vector3.RIGHT, Vector3.RIGHT]
+		ours.append(skel.get_bone_global_rest(d).origin)
+	var d_side: Vector3 = to_char * (ours[0] - ours[1])
+	var s_side: Vector3 = src.rest_global[src.bone(pair[0])].origin - src.rest_global[src.bone(pair[1])].origin
+	return [d_side.normalized(), s_side.normalized()]
 
 
 ## Thigh + shin of ours over the source's, in metres (falls back to the hip height ratio).
@@ -120,7 +155,7 @@ func apply(delta: float, speed: float) -> Array:
 	for c in LOCOMOTION:
 		var len: float = src.clips[c].length
 		mix.append([c, fposmod(phase + _contact[c], 1.0) * len, w[c]])
-	var s := src.sample(mix)
+	var s := src.sample(mix, _calm)
 	var g := src.globals(s[0], s[1])
 	_last = g
 	var done := {}
@@ -159,6 +194,24 @@ func arm_dirs(side: String) -> Array:
 	var el: Vector3 = _last[src.bone("DEF-forearm." + side)].origin
 	var wr: Vector3 = _last[src.bone("DEF-hand." + side)].origin
 	return [(el - sh).normalized(), (wr - el).normalized()]
+
+
+## Turns our bone onto the source's: its direction onto theirs, and also the body's side axis
+## onto theirs (both characters face +Z with the side along X). Lining up the direction alone
+## leaves the bone twisted about itself, and a twisted chest rolls the shoulders to one side.
+static func _frame_align(d_dir: Vector3, s_dir: Vector3, d_ref := Vector3.RIGHT, s_ref := Vector3.RIGHT, side_first := false) -> Quaternion:
+	if absf(d_dir.dot(d_ref)) > 0.8 or absf(s_dir.dot(s_ref)) > 0.8:
+		d_ref = Vector3.BACK       # a bone along the side (an arm in a T-pose): use forward instead
+		s_ref = Vector3.BACK
+	if side_first:
+		# The side line is exact (level shoulders stay level), the bone's direction is the nearest.
+		d_dir = (d_dir - d_ref * d_ref.dot(d_dir)).normalized()
+		s_dir = (s_dir - s_ref * s_ref.dot(s_dir)).normalized()
+	var d_side := (d_ref - d_dir * d_ref.dot(d_dir)).normalized()
+	var s_side := (s_ref - s_dir * s_ref.dot(s_dir)).normalized()
+	var d_basis := Basis(d_side, d_dir, d_side.cross(d_dir).normalized())
+	var s_basis := Basis(s_side, s_dir, s_side.cross(s_dir).normalized())
+	return (s_basis * d_basis.inverse()).get_rotation_quaternion()
 
 
 static func _arc(a: Vector3, b: Vector3) -> Quaternion:
