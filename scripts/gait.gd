@@ -117,7 +117,7 @@ func setup(skel: Skeleton3D, map: Dictionary, body: Node3D) -> void:
 		rt = Retarget.new()
 		var pel := _one("pelvis")
 		var hip_h: float = (skel.global_transform * skel.get_bone_global_rest(pel).origin).y - body.global_position.y
-		rt.setup(skel, cmap, body, hip_h, map.get("torso_swing", 1.0))
+		rt.setup(skel, cmap, body, hip_h, map.get("torso_swing", 1.0), map.get("clip_keep", []))
 	_clip_arms = map.get("clip_arms", false) and rt != null
 	_feminine = float(map.get("feminine", 0.0)) if rt != null else 0.0
 	var tl := _one("thigh_l")

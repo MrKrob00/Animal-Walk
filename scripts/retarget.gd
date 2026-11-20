@@ -48,7 +48,9 @@ var _calm := {}         ## source bone -> share of the clip's swing kept
 
 
 ## `map`: source bone name -> our bone index. `body` faces +Z.
-func setup(skeleton: Skeleton3D, map: Dictionary, body: Node3D, our_hip_height: float, torso_swing := 1.0) -> void:
+## `keep`: source bones whose shape at rest is ours, not lined up with the clip's (a rabbit's
+## bent leg would be straightened like the clip's man's): the clip's motion goes on top of it.
+func setup(skeleton: Skeleton3D, map: Dictionary, body: Node3D, our_hip_height: float, torso_swing := 1.0, keep: Array = []) -> void:
 	src = ClipSource.shared()
 	skel = skeleton
 	var rel := (body.global_transform.basis.inverse() * skel.global_transform.basis).orthonormalized()
@@ -69,7 +71,9 @@ func setup(skeleton: Skeleton3D, map: Dictionary, body: Node3D, our_hip_height: 
 			var d_dir: Vector3 = to_char * (skel.get_bone_global_rest(map[aim]).origin - skel.get_bone_global_rest(d).origin)
 			if s_dir.length() > 1e-6 and d_dir.length() > 1e-6:
 				var sides := _side_axes(sname, map)
-				if SIDE_PAIR.has(sname):
+				if keep.has(sname):
+					a = Quaternion.IDENTITY
+				elif SIDE_PAIR.has(sname):
 					a = _yaw_align(sides[0], sides[1])
 				else:
 					a = _frame_align(d_dir.normalized(), s_dir.normalized(), sides[0], sides[1])

@@ -39,6 +39,7 @@ func _run() -> void:
 	var body_mi: MeshInstance3D = scene.find_child(c.body, true, false)
 	for n in c.items:
 		SkinFit.follow_body(body_mi, scene.find_child(n, true, false))
+	_body_mi = body_mi
 	_pick_bones(meshes)
 	_join()
 	_axes()
@@ -244,6 +245,13 @@ func _pose_t() -> void:
 		var yaw := Quaternion(up, -atan2(flat.x, flat.y)) if flat.length() > 1e-5 else Quaternion.IDENTITY
 		_set_rot(_bone("DEF-foot." + s), yaw * feet_rest["DEF-foot." + s])
 		_set_rot(_bone("DEF-toe." + s), yaw * feet_rest["DEF-toe." + s])
+	# Her rest stands on the left leg with the right paw on its toes: the right paw and toes take
+	# the left ones' set, mirrored.
+	for n in ["DEF-foot.", "DEF-toe."]:
+		_set_rot(_bone(n + "R"), _mirror_rot(_rot(_bone(n + "L"))))
+	var dl := _at("DEF-toe.L") - _at("DEF-foot.L")
+	_aim(_bone("DEF-foot.R"), _bone("DEF-toe.R"), dl - left * 2.0 * dl.dot(left))   # exactly the left paw's slope, mirrored
+	_rabbit_legs()
 
 
 ## Her rest leans the upper body back (neck and shoulders 12 cm behind the hips, the belly and
@@ -283,6 +291,137 @@ func _stand_up() -> void:
 		else:
 			hi = a
 	print("spine bent forward %.1f deg; neck %.3f m from over the hips" % [rad_to_deg((lo + hi) * 0.5), offset.call()])
+
+
+## The mirror image (across her middle) of a left bone's rotation, as a right bone's: the
+## right bones' own axes are the left ones' mirrored with one axis flipped, found once from a
+## pair that is symmetric in her rest (the breasts).
+var _flip := Basis()
+var _flip_known := false
+
+func _mirror_rot(q: Quaternion) -> Quaternion:
+	var m := Basis(Vector3.RIGHT, Vector3.UP, Vector3.BACK)
+	m = Basis(Vector3(1, 0, 0) - left * 2.0 * left.x, Vector3(0, 1, 0) - left * 2.0 * left.y, Vector3(0, 0, 1) - left * 2.0 * left.z)
+	if not _flip_known:
+		var bl := sk.get_bone_global_rest(_bone("DEF-breast01.L")).basis.orthonormalized()
+		var br := sk.get_bone_global_rest(_bone("DEF-breast01.R")).basis.orthonormalized()
+		var d := (m * bl).inverse() * br   # ~ a diagonal of +-1
+		_flip = Basis(Vector3(signf(d.x.x), 0, 0), Vector3(0, signf(d.y.y), 0), Vector3(0, 0, signf(d.z.z)))
+		_flip_known = true
+	return (m * Basis(q) * _flip).orthonormalized().get_rotation_quaternion()
+
+
+## A rabbit's leg (the player chose it): she stands on the front of her paws, the heel raised
+## (HEEL_UP, the paw turning about its ball, which stays where it was, toes flat), and the leg
+## folds like a Z: the knee KNEE_FWD in front of the hip-ankle line. Her paw is short, so the
+## hips come down a little to make room for the fold (both legs alike).
+const HEEL_UP := deg_to_rad(25.0)
+const KNEE_FWD := 0.12   ## metres (of this tool; the game fits her a little smaller)
+
+func _rabbit_legs() -> void:
+	var axis := up.cross(fwd).normalized()          # turning about it tips "up" toward "fwd"
+	var lift := Quaternion(axis, HEEL_UP)             # the heel goes up
+	var legs := {}
+	for s in ["L", "R"]:
+		var ball := _at("DEF-toe." + s)
+		var ankle := _at("DEF-foot." + s)
+		var knee := _at("DEF-shin." + s)
+		var hip := _at("DEF-thigh." + s)
+		legs[s] = {"ball": ball, "heel": ball + lift * (ankle - ball), "l1": hip.distance_to(knee), "l2": knee.distance_to(ankle), "toe_rot": _rot(_bone("DEF-toe." + s))}
+	# The right paw stands exactly as the left, mirrored across her middle.
+	var mid := (_at("DEF-thigh.L") + _at("DEF-thigh.R")) * 0.5
+	var mirror := func(p: Vector3) -> Vector3: return p - left * 2.0 * (p - mid).dot(left)
+	legs["R"]["ball"] = mirror.call(legs["L"]["ball"])
+	legs["R"]["heel"] = mirror.call(legs["L"]["heel"])
+	# How far hip and heel must be for the knee to stand KNEE_FWD off their line.
+	var L: Dictionary = legs["L"]
+	var metre := 1.0 / place.basis.get_scale().x
+	var k := KNEE_FWD * metre
+	var lo: float = absf(L.l1 - L.l2) + 1e-4
+	var hi: float = L.l1 + L.l2 - 1e-4
+	for _i in 40:
+		var d := (lo + hi) * 0.5
+		var a: float = (L.l1 * L.l1 + d * d - L.l2 * L.l2) / (2.0 * d)
+		var h := sqrt(maxf(L.l1 * L.l1 - a * a, 0.0))
+		if h > k:
+			lo = d
+		else:
+			hi = d
+	var want_d := (lo + hi) * 0.5
+	# Lower the hips (the whole body above the legs) until the left hip is that far from its heel.
+	var root := _bone("DEF-spine")
+	var start := sk.get_bone_pose_position(root)
+	var par := sk.get_bone_parent(root)
+	var to_par := Basis() if par < 0 else sk.get_bone_global_pose(par).basis.inverse()
+	var dlo := 0.0
+	var dhi := 0.6 * metre
+	for _i in 40:
+		var drop := (dlo + dhi) * 0.5
+		sk.set_bone_pose_position(root, start + to_par * (-up * drop))
+		if _at("DEF-thigh.L").distance_to(L.heel) > want_d:
+			dlo = drop
+		else:
+			dhi = drop
+	print("rabbit legs: hips down %.3f m" % ((dlo + dhi) * 0.5 / metre))
+	for s in ["L", "R"]:
+		_fold_leg(s, legs[s])
+	# The paws' skin is not quite mirrored: the right one stood lower. Lift its targets by the
+	# difference and fold it again, so both paws stand on the same ground.
+	var dl := _paw_low("L") - _paw_low("R")
+	legs["R"]["ball"] += up * dl
+	legs["R"]["heel"] += up * dl
+	_fold_leg("R", legs["R"])
+	print("rabbit legs: right paw lifted %.3f m to match the left" % (dl / metre))
+
+
+func _fold_leg(s: String, g: Dictionary) -> void:
+	var thigh := _bone("DEF-thigh." + s)
+	var shin := _bone("DEF-shin." + s)
+	var foot := _bone("DEF-foot." + s)
+	var hip := _at("DEF-thigh." + s)
+	var heel: Vector3 = g.heel
+	var d := clampf(hip.distance_to(heel), absf(g.l1 - g.l2) + 1e-4, g.l1 + g.l2 - 1e-4)
+	var along := (heel - hip).normalized()
+	var bend := (fwd - along * fwd.dot(along)).normalized()   # the knee goes forward
+	var a: float = (g.l1 * g.l1 + d * d - g.l2 * g.l2) / (2.0 * d)
+	var knee_at: Vector3 = hip + along * a + bend * sqrt(maxf(g.l1 * g.l1 - a * a, 0.0))
+	_aim(thigh, shin, knee_at - hip)
+	_aim(shin, foot, heel - _at("DEF-shin." + s))
+	# The paw: from the raised heel down to its ball, then the toes flat again.
+	_turn(foot, _arc((_at("DEF-toe." + s) - _at("DEF-foot." + s)).normalized(), (g.ball - heel).normalized()))
+	_set_rot(_bone("DEF-toe." + s), g.toe_rot)
+
+
+var _body_mi: MeshInstance3D
+
+## The lowest point (along "up", skeleton space) of a paw's skin in the current pose.
+func _paw_low(s: String) -> float:
+	var skin := _body_mi.skin
+	var arr := _body_mi.mesh.surface_get_arrays(0)
+	var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	var bones: PackedInt32Array = arr[Mesh.ARRAY_BONES]
+	var w: PackedFloat32Array = arr[Mesh.ARRAY_WEIGHTS]
+	var paw := {}
+	for bind in skin.get_bind_count():
+		var n := _clean(sk.get_bone_name(_bind_bone(skin, bind)))
+		if n == "DEF-foot." + s or n == "DEF-toe." + s:
+			paw[bind] = true
+	var low := INF
+	for i in verts.size():
+		var on := 0.0
+		for k in 4:
+			if paw.has(bones[i * 4 + k]):
+				on += w[i * 4 + k]
+		if on < 0.5:
+			continue
+		var p := Vector3.ZERO
+		for k in 4:
+			var wt := w[i * 4 + k]
+			if wt > 0.0:
+				var b := bones[i * 4 + k]
+				p += (sk.get_bone_global_pose(_bind_bone(skin, b)) * skin.get_bind_pose(b) * verts[i]) * wt
+		low = minf(low, p.dot(up))
+	return low
 
 
 ## Points each bone of a chain along `dir` (the last name is the tip, only aimed at).

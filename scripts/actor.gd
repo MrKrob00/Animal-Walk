@@ -10,7 +10,7 @@ signal footstep(pos: Vector3, size: float)
 ## arms, head, chest and fingers are re-hung under the spine and the hands ("reparent").
 const BUNNY := {
 	# Her T-posed model with a clean skeleton (tools/tpose_bunny.gd makes it from the Sketchfab file).
-	"path": "res://assets/chobby_tpose.glb", "height": 1.6,
+	"path": "res://assets/chobby_tpose.glb", "height": 1.6, "sole": 0.032,
 	"walk": 1.5, "run": 3.4, "stride": 1.45, "run_stride": 2.5, "radius": 0.3,
 	# Her top and shorts take the skin's bone weights, so no gap opens when the chest moves.
 	# The leash lies over these instead of passing through: [from bone, to bone, radius m, reach past "to" m].
@@ -29,7 +29,9 @@ const BUNNY := {
 		"tail": ["DEF-spine.004"],
 		"soft": [["DEF-breast01.L", "DEF-breast04.L"], ["DEF-breast01.R", "DEF-breast04.R"]],
 		"arms_down": true,
-		"clip_arms": true, "torso_swing": 0.5, "feminine": 1.0,   # arms aimed like the clip's from arms-down (her V-sign rest wrings copied arms); half the clips' torso swing
+		"clip_arms": true, "torso_swing": 0.5, "feminine": 1.0,
+		# Her legs keep their rabbit shape (knee forward, heel up); the clips move them from there.
+		"clip_keep": ["DEF-thigh.L", "DEF-shin.L", "DEF-foot.L", "DEF-toe.L", "DEF-thigh.R", "DEF-shin.R", "DEF-foot.R", "DEF-toe.R"],   # arms aimed like the clip's from arms-down (her V-sign rest wrings copied arms); half the clips' torso swing
 		"tires": true,
 		# Real clips (tools: ClipSource / Retarget): source bone -> our bone.
 		"clips": {
@@ -159,6 +161,7 @@ func _fit(height: float) -> void:
 	_fit_scale = height / maxf(h * 1.1, 0.0001)
 	_model.scale = Vector3.ONE * _fit_scale
 	_model.position = -Vector3(box.get_center().x, foot, box.get_center().z) * _fit_scale
+	_model.position.y += float(data.get("sole", 0.0))   # the paw's skin below its lowest bone
 
 
 ## Lowest foot bone tail is above the sole: take the lowest foot/toe bone.
