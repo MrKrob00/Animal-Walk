@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://yrrk3b34eaqn"
+path.s3tc="res://.godot/imported/otter-chan_2.png-f6b9708e7c4e7a0174a9c5627569a75c.s3tc.ctex"
 path.etc2="res://.godot/imported/otter-chan_2.png-f6b9708e7c4e7a0174a9c5627569a75c.etc2.ctex"
 metadata={
-"imported_formats": ["etc2_astc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/otter-chan_2.png"
-dest_files=["res://.godot/imported/otter-chan_2.png-f6b9708e7c4e7a0174a9c5627569a75c.etc2.ctex"]
+dest_files=["res://.godot/imported/otter-chan_2.png-f6b9708e7c4e7a0174a9c5627569a75c.s3tc.ctex", "res://.godot/imported/otter-chan_2.png-f6b9708e7c4e7a0174a9c5627569a75c.etc2.ctex"]
 
 [params]
 

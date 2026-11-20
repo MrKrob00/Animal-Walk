@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://pl8aedtq1ttc"
+path.s3tc="res://.godot/imported/tofu_rigged_Image_2.png-d8f57bd8fb83e1e4feafc4131b94c86d.s3tc.ctex"
 path.etc2="res://.godot/imported/tofu_rigged_Image_2.png-d8f57bd8fb83e1e4feafc4131b94c86d.etc2.ctex"
 metadata={
-"imported_formats": ["etc2_astc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/tofu_rigged_Image_2.png"
-dest_files=["res://.godot/imported/tofu_rigged_Image_2.png-d8f57bd8fb83e1e4feafc4131b94c86d.etc2.ctex"]
+dest_files=["res://.godot/imported/tofu_rigged_Image_2.png-d8f57bd8fb83e1e4feafc4131b94c86d.s3tc.ctex", "res://.godot/imported/tofu_rigged_Image_2.png-d8f57bd8fb83e1e4feafc4131b94c86d.etc2.ctex"]
 
 [params]
 

@@ -27,6 +27,10 @@ func _run() -> void:
 	root.add_child(main)
 	await process_frame
 	main.camera_rig.camera.position *= zoom
+	if zoom > 3.0:   # an overview: see far, and show every piece of the island
+		main.camera_rig.camera.far = 4000.0
+		for m in main.find_children("*", "MultiMeshInstance3D", true, false):
+			m.visibility_range_end = 0.0
 	var n := 0
 	for s in STEPS:
 		main.forced_run = s[2]

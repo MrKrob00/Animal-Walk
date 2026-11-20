@@ -4,6 +4,7 @@ extends Node3D
 
 const POOL := 8
 
+var tint := Color("#efe0bb")   ## sand by default; the sea splash is white
 var _pool: Array[CPUParticles3D] = []
 var _next := 0
 
@@ -15,7 +16,7 @@ func _ready() -> void:
 	mesh.radial_segments = 5
 	mesh.rings = 2
 	var m := StandardMaterial3D.new()
-	m.albedo_color = Color("#efe0bb")
+	m.albedo_color = tint
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mesh.material = m
 	var curve := Curve.new()
@@ -45,7 +46,7 @@ func _ready() -> void:
 func puff(pos: Vector3, size := 1.0) -> void:
 	var p := _pool[_next]
 	_next = (_next + 1) % POOL
-	p.global_position = Vector3(pos.x, Terrain.height(pos.x, pos.z) + 0.03, pos.z)
+	p.global_position = Vector3(pos.x, maxf(Terrain.height(pos.x, pos.z), 0.0) + 0.03, pos.z)
 	p.scale_amount_min = 0.05 * size
 	p.scale_amount_max = 0.09 * size
 	p.restart()

@@ -1,7 +1,9 @@
 class_name WorldBuilder
 extends RefCounted
-## Dresses the island: paper palms, flowering bushes, rocks, dune grass, and shells and
-## starfish on the sand. Each kind is one MultiMesh (one draw call) with the paper material.
+## Dresses the island: palm groves on the beaches, flowering bushes on the hill meadows,
+## rocks on the sand and slopes, dune grass, and shells and starfish by the water.
+## Each kind is cut into CHUNK-sized MultiMeshes that fade out with distance, so a big island
+## costs only what is near the camera.
 
 const TRUNK := "#9a7452"
 const TRUNK_RING := "#7d5c40"
@@ -16,99 +18,121 @@ const DUNE_GRASS := "#b9b46a"
 const SHELL := "#f6e8d8"
 const STARFISH := "#ea8a5c"
 
-## Spawn clearing: nothing grows here so the start is open.
-const CLEARING_CENTER := Vector2(0, -20)   # the start, on the north beach
-const CLEARING_RADIUS := 6.5
+const CHUNK := 32.0         ## metres per MultiMesh piece
+const SEEN_TO := 60.0       ## pieces fade out beyond this distance from the camera
+
+## The start, on the north beach: nothing grows right there.
+static func clearing_center() -> Vector2:
+	return Vector2(0.0, -Terrain.shore(-PI * 0.5) * 0.92)
+
+const CLEARING_RADIUS := 7.0
 
 
-## Fills `root` and returns obstacles as Vector3(x, z, radius).
-static func populate(root: Node3D, seed_value := 20261120) -> Array[Vector3]:
+## Fills `root`; obstacles go into `obs`.
+static func populate(root: Node3D, obs: Obstacles, seed_value := 20261120) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
+	var groves := FastNoiseLite.new()
+	groves.seed = 77
+	groves.frequency = 0.035
 	var kinds := {"palm": [], "bush": [], "rock": []}
-	var placed: Array[Vector3] = []
-	var obstacles: Array[Vector3] = []
-	var spacing := {"palm": 4.2, "bush": 2.0, "rock": 2.0}
+	var spacing := {"palm": 4.0, "bush": 2.4, "rock": 2.6}
 	var block := {"palm": 0.32, "bush": 0.75, "rock": 0.8}
-	for i in range(1600):
+	var taken := Obstacles.new()   # placement spacing, a separate grid
+	var clear := clearing_center()
+	for i in range(14000):
 		var ang := rng.randf() * TAU
-		var x := 0.0
-		var z := 0.0
-		var d := sqrt(rng.randf()) * 1.08
-		x = cos(ang) * d * Terrain.shore(ang)
-		z = sin(ang) * d * Terrain.shore(ang)
-		if Vector2(x, z).distance_to(CLEARING_CENTER) < CLEARING_RADIUS:
+		var d := sqrt(rng.randf()) * 1.03
+		var x := cos(ang) * d * Terrain.shore(ang)
+		var z := sin(ang) * d * Terrain.shore(ang)
+		if Vector2(x, z).distance_to(clear) < CLEARING_RADIUS:
 			continue
+		var y := Terrain.height(x, z)
 		var roll := rng.randf()
-		var kind := "palm" if roll < 0.5 else ("bush" if roll < 0.86 else "rock")
-		# Palms on the beach and lower hills, bushes inland, rocks anywhere up to the surf.
-		if kind == "palm" and (d < 0.3 or d > 0.92):
-			continue
-		if kind == "bush" and (d > 0.78 or Terrain.height(x, z) < 1.1):
-			continue   # bushes grow on the grassy hilltops
-		if kind == "rock" and d < 0.4:
-			continue
+		var kind := "palm" if roll < 0.46 else ("bush" if roll < 0.9 else "rock")
+		match kind:
+			"palm":   # in groves, on the beach and low ground
+				if y < 0.1 or y > 2.0 or groves.get_noise_2d(x, z) < 0.05:
+					continue
+			"bush":   # on the hill meadows
+				if y < 1.3 or d > Terrain.BEACH:
+					continue
+			"rock":   # at the water's edge and as outcrops on the hills
+				if y < -0.4 or (y > 0.35 and y < 2.2):
+					continue
 		var sp: float = spacing[kind]
-		var ok := true
-		for p in placed:
-			if Vector2(p.x, p.y).distance_to(Vector2(x, z)) < (sp + p.z) * 0.6:
-				ok = false
+		var crowded := false
+		for o in taken.near(x, z, sp):
+			if Vector2(o.x, o.y).distance_to(Vector2(x, z)) < (sp + o.z) * 0.6:
+				crowded = true
 				break
-		if not ok:
+		if crowded:
 			continue
 		var s := rng.randf_range(0.85, 1.25)
 		var basis := Basis(Vector3.UP, rng.randf() * TAU)
 		if kind == "rock":
-			s = rng.randf_range(0.45, 1.0)
+			s = rng.randf_range(0.45, 1.1) * (1.6 if y > 2.0 else 1.0)   # bigger outcrops on the hills
 			basis = basis.scaled(Vector3(s * rng.randf_range(0.8, 1.2), s * rng.randf_range(0.7, 1.1), s * rng.randf_range(0.8, 1.2)))
 		else:
 			basis = basis.scaled(Vector3.ONE * s)
-		var y := Terrain.height(x, z) - 0.08
-		kinds[kind].append(Transform3D(basis, Vector3(x, y, z)))
-		placed.append(Vector3(x, z, sp))
+		kinds[kind].append(Transform3D(basis, Vector3(x, y - 0.08, z)))
+		taken.add(x, z, sp)
 		if y > -0.3:
-			obstacles.append(Vector3(x, z, block[kind] * s))
+			obs.add(x, z, block[kind] * s)
 	var tufts: Array = []
 	var shells: Array = []
 	var stars: Array = []
-	for i in range(700):
+	for i in range(9000):
 		var ang := rng.randf() * TAU
-		var d := rng.randf_range(0.3, 0.99)
+		var d := sqrt(rng.randf()) * 1.0
 		var x := cos(ang) * d * Terrain.shore(ang)
 		var z := sin(ang) * d * Terrain.shore(ang)
 		var y := Terrain.height(x, z)
 		var basis := Basis(Vector3.UP, rng.randf() * TAU)
-		if d < 0.9 and i < 260:
+		if d < 0.97 and y > 0.3 and i % 2 == 0:
 			tufts.append(Transform3D(basis.scaled(Vector3.ONE * rng.randf_range(0.7, 1.3)), Vector3(x, y - 0.04, z)))
-		elif d > 0.86 and y < 0.35 and y > 0.02:
+		elif d > 0.93 and y < 0.35 and y > 0.02 and i % 4 == 1:
 			var t := Transform3D(basis.scaled(Vector3.ONE * rng.randf_range(0.7, 1.2)), Vector3(x, y + 0.01, z))
 			if rng.randf() < 0.7:
 				shells.append(t)
 			else:
 				stars.append(t)
-	_add_multimesh(root, "Palms", palm_mesh(rng), kinds["palm"])
-	_add_multimesh(root, "Bushes", bush_mesh(rng), kinds["bush"])
-	_add_multimesh(root, "Rocks", rock_mesh(rng), kinds["rock"])
-	_add_multimesh(root, "DuneGrass", tuft_mesh(rng), tufts)
-	_add_multimesh(root, "Shells", shell_mesh(), shells, false)
-	_add_multimesh(root, "Starfish", starfish_mesh(), stars, false)
-	return obstacles
+	_add_chunked(root, "Palms", palm_mesh(rng), kinds["palm"])
+	_add_chunked(root, "Bushes", bush_mesh(rng), kinds["bush"])
+	_add_chunked(root, "Rocks", rock_mesh(rng), kinds["rock"])
+	_add_chunked(root, "DuneGrass", tuft_mesh(rng), tufts, false)
+	_add_chunked(root, "Shells", shell_mesh(), shells, false)
+	_add_chunked(root, "Starfish", starfish_mesh(), stars, false)
 
 
-static func _add_multimesh(root: Node3D, node_name: String, mesh: Mesh, xforms: Array, shadows := true) -> void:
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.mesh = mesh
-	mm.instance_count = xforms.size()
-	for i in range(xforms.size()):
-		mm.set_instance_transform(i, xforms[i])
-	var mmi := MultiMeshInstance3D.new()
-	mmi.name = node_name
-	mmi.multimesh = mm
-	mmi.material_override = PaperMesh.material()
-	if not shadows:
-		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	root.add_child(mmi)
+## One MultiMesh per CHUNK cell, faded out with distance.
+static func _add_chunked(root: Node3D, node_name: String, mesh: Mesh, xforms: Array, shadows := true) -> void:
+	var cells := {}
+	for t in xforms:
+		var k := Vector2i(floori(t.origin.x / CHUNK), floori(t.origin.z / CHUNK))
+		if not cells.has(k):
+			cells[k] = []
+		cells[k].append(t)
+	var group := Node3D.new()
+	group.name = node_name
+	root.add_child(group)
+	for k in cells:
+		var list: Array = cells[k]
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = mesh
+		mm.instance_count = list.size()
+		for i in range(list.size()):
+			mm.set_instance_transform(i, list[i])
+		var mmi := MultiMeshInstance3D.new()
+		mmi.multimesh = mm
+		mmi.material_override = PaperMesh.material()
+		mmi.visibility_range_end = SEEN_TO
+		mmi.visibility_range_end_margin = 6.0
+		mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED
+		if not shadows:
+			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		group.add_child(mmi)
 
 
 ## A leaning, ringed trunk and a crown of drooping paper fronds with three coconuts.
@@ -155,7 +179,6 @@ static func _frond(st: SurfaceTool, base: Vector3, ang: float, length: float, co
 		for sgn in [-1.0, 1.0]:
 			var tip: Vector3 = mid + side * wide * sgn + Vector3.DOWN * 0.08
 			PaperMesh.tri(st, a, b, tip, color, mid + Vector3.DOWN)
-	return
 
 
 static func bush_mesh(rng: RandomNumberGenerator) -> ArrayMesh:
@@ -194,7 +217,6 @@ static func shell_mesh() -> ArrayMesh:
 	for i in range(n):
 		var a0 := PI * (0.15 + 0.7 * float(i) / n)
 		var a1 := PI * (0.15 + 0.7 * float(i + 1) / n)
-		var tip := Vector3(0, 0.05, 0.1)
 		PaperMesh.tri(st, Vector3(0, 0.02, -0.05), Vector3(cos(a0) * 0.12, 0.03, sin(a0) * 0.12 - 0.05), Vector3(cos(a1) * 0.12, 0.03 + (0.015 if i % 2 == 0 else 0.0), sin(a1) * 0.12 - 0.05), c, Vector3(0, -1, 0))
 	return PaperMesh.commit(st)
 

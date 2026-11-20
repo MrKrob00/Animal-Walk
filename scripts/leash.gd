@@ -75,7 +75,7 @@ func simulate(delta: float, pa: Vector3, pb: Vector3) -> void:
 					pts[i] += fix
 		if use_ground:
 			for i in range(1, POINTS - 1):
-				var g := Terrain.height(pts[i].x, pts[i].z) + 0.03
+				var g := maxf(Terrain.height(pts[i].x, pts[i].z), 0.0) + 0.03   # floats on the sea
 				if pts[i].y < g:
 					pts[i].y = g
 	pts[0] = pa

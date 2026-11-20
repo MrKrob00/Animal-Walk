@@ -62,8 +62,8 @@ const TOFU := {
 	# A red leather collar with a brass ring at the front (the leash clips to the ring).
 	# Numbers are in the rig's own units (skeleton space of tofu_rigged.glb, Y up, +Z forward),
 	# measured from the neck: it is about 0.17 wide around y = 3.26.
-	"collar": {"bone": "neck", "center": Vector3(0, 3.26, 0.035), "radius": Vector2(0.19, 0.175),
-		"tube": 0.035, "tilt": -0.12, "color": "#c8333f", "ring": "#e2b84f"},
+	"collar": {"bone": "neck", "center": Vector3(0, 3.28, 0.02), "radius": Vector2(0.2, 0.19),
+		"tube": 0.032, "tilt": 0.26, "color": "#c8333f", "ring": "#e2b84f"},
 	"hide": [],
 }
 
@@ -151,7 +151,7 @@ func add_collar() -> Node3D:
 	skeleton.add_child(ba)
 	# Things are made in skeleton space, then expressed relative to the bone at rest.
 	var to_bone := skeleton.get_bone_global_rest(bone).affine_inverse()
-	var tilt := Basis(Vector3.RIGHT, float(c.tilt))   # a touch lower at the front
+	var tilt := Basis(Vector3.RIGHT, float(c.tilt))   # + tilt: lower at the front, higher at the back
 	var r: Vector2 = c.radius
 	var st := PaperMesh.begin()
 	PaperMesh.torus(st, Transform3D(tilt.scaled(Vector3(r.x / r.y, 1.0, 1.0)), c.center), r.y, float(c.tube), 18, 6, PaperMesh.col(c.color))

@@ -1,12 +1,13 @@
 class_name Water
 extends MeshInstance3D
 ## The sea: one grid at y = 0 out to the horizon, only where the ground is below or near it
-## (no hidden water under the island: the phone pays per pixel). Depth is baked into the
-## vertex alpha for shaders/water.gdshader.
+## (no hidden water under the island: the phone pays per pixel). The signed depth in metres
+## (negative under the land) is baked into UV.x, so the foam line falls exactly on the waterline
+## even though the grid is coarse.
 
-const SIZE := 220.0
-const CELLS := 90
-const DEPTH_FULL := 2.4    ## metres of water that count as "deep"
+const SIZE := 420.0
+const CELLS := 168   # 2.5 m: fine enough for a smooth foam line
+const DEPTH_FULL := 2.4    ## metres of water that count as "deep" (the shader: foam under 3 cm)
 
 
 func _ready() -> void:
@@ -23,7 +24,7 @@ static func depth_at(x: float, z: float) -> float:
 
 static func build_mesh() -> ArrayMesh:
 	var verts := PackedVector3Array()
-	var cols := PackedColorArray()
+	var uvs := PackedVector2Array()
 	var norms := PackedVector3Array()
 	var idx := PackedInt32Array()
 	var step := SIZE / CELLS
@@ -38,7 +39,7 @@ static func build_mesh() -> ArrayMesh:
 			heights.append(h)
 			verts.append(Vector3(x, 0, z))
 			norms.append(Vector3.UP)
-			cols.append(Color(1, 1, 1, clampf(-h / DEPTH_FULL, 0.0, 1.0)))
+			uvs.append(Vector2(-h, 0.0))
 	for j in range(CELLS):
 		for i in range(CELLS):
 			var p00 := j * w + i
@@ -53,7 +54,7 @@ static func build_mesh() -> ArrayMesh:
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_NORMAL] = norms
-	arrays[Mesh.ARRAY_COLOR] = cols
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_INDEX] = idx
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)

@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://b3cb8j2vkvv58"
+path.s3tc="res://.godot/imported/border_collie_scientist_6.png-ea09fab79c0abb01bea80a37bf5a82c3.s3tc.ctex"
 path.etc2="res://.godot/imported/border_collie_scientist_6.png-ea09fab79c0abb01bea80a37bf5a82c3.etc2.ctex"
 metadata={
-"imported_formats": ["etc2_astc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/border_collie_scientist_6.png"
-dest_files=["res://.godot/imported/border_collie_scientist_6.png-ea09fab79c0abb01bea80a37bf5a82c3.etc2.ctex"]
+dest_files=["res://.godot/imported/border_collie_scientist_6.png-ea09fab79c0abb01bea80a37bf5a82c3.s3tc.ctex", "res://.godot/imported/border_collie_scientist_6.png-ea09fab79c0abb01bea80a37bf5a82c3.etc2.ctex"]
 
 [params]
 

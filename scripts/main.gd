@@ -6,9 +6,9 @@ extends Node3D
 const LEASH_GROUND := 3.0   ## how far apart the two ends may be on the ground, metres
 const LEASH_ROPE := 3.25   ## rope length in 3D (the ends are at different heights)
 const HAMMER_TIME := 0.6   ## the bunny stands still while she hammers, seconds
-const START := Vector2(0.0, -21.0)   ## on the north beach: the camera looks out over the sea
 
-var obstacles: Array[Vector3] = []   ## x, z, radius
+var obstacles := Obstacles.new()
+var splash: Puffs              ## water drops when a paw lands in the sea
 var rules := LeashRules.new()
 var bunny: Actor
 var tofu: Actor
@@ -35,7 +35,7 @@ func _ready() -> void:
 	ground.mesh = Terrain.build_mesh()
 	ground.material_override = PaperMesh.material()
 	add_child(ground)
-	obstacles = WorldBuilder.populate(self)
+	WorldBuilder.populate(self, obstacles)
 	var sea := Water.new()
 	sea.name = "Sea"
 	add_child(sea)
@@ -44,19 +44,23 @@ func _ready() -> void:
 	add_child(footprints)
 	puffs = Puffs.new()
 	add_child(puffs)
+	splash = Puffs.new()
+	splash.tint = Color("#f4fbff")
+	add_child(splash)
 
 	tofu = Actor.new()
 	tofu.name = "Tofu"
 	tofu.setup(Actor.TOFU)
 	tofu.world = self
-	tofu.position = Vector3(0, Terrain.height(0, START.y), START.y)
+	var start := WorldBuilder.clearing_center()   # on the north beach, facing the sea
+	tofu.position = Vector3(start.x, Terrain.height(start.x, start.y), start.y)
 	add_child(tofu)
 
 	bunny = Actor.new()
 	bunny.name = "Bunny"
 	bunny.setup(Actor.BUNNY)
 	bunny.world = self
-	bunny.position = Vector3(-0.6, Terrain.height(-0.6, START.y + 2.2), START.y + 2.2)
+	bunny.position = Vector3(start.x - 0.6, Terrain.height(start.x - 0.6, start.y + 2.2), start.y + 2.2)
 	add_child(bunny)
 
 	_collar = tofu.add_collar()   # the brass ring at the front of TOFU's collar
@@ -189,13 +193,17 @@ func _follow(who: Actor, leader: Vector3, delta: float) -> void:
 
 
 func _on_step(pos: Vector3, size: float, who: Node3D) -> void:
+	if Terrain.height(pos.x, pos.z) < -0.01:
+		splash.puff(pos, size * 1.2)   # wading: a splash, and the sea keeps no prints
+		return
 	footprints.add(pos, who.rotation.y, size * 0.8)
 	puffs.puff(pos, size)
 
 
 ## Pushes a walker of `radius` out of trees and rocks and keeps it in the play area.
 func resolve(pos: Vector3, radius: float) -> Vector3:
-	return resolve_against(pos, radius, obstacles)
+	var p := Terrain.keep_on_island(obstacles.push_out(Vector2(pos.x, pos.z), radius))
+	return Vector3(p.x, pos.y, p.y)
 
 
 static func resolve_against(pos: Vector3, radius: float, obs: Array[Vector3]) -> Vector3:
