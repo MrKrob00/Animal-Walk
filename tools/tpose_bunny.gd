@@ -365,13 +365,6 @@ func _rabbit_legs() -> void:
 	print("rabbit legs: hips down %.3f m" % ((dlo + dhi) * 0.5 / metre))
 	for s in ["L", "R"]:
 		_fold_leg(s, legs[s])
-	# The paws' skin is not quite mirrored: the right one stood lower. Lift its targets by the
-	# difference and fold it again, so both paws stand on the same ground.
-	var dl := _paw_low("L") - _paw_low("R")
-	legs["R"]["ball"] += up * dl
-	legs["R"]["heel"] += up * dl
-	_fold_leg("R", legs["R"])
-	print("rabbit legs: right paw lifted %.3f m to match the left" % (dl / metre))
 
 
 func _fold_leg(s: String, g: Dictionary) -> void:
@@ -513,6 +506,22 @@ func _build(meshes: Array[MeshInstance3D], baked: Dictionary) -> Node3D:
 	for b in order:
 		var g := sk.get_bone_global_pose(b)
 		glob[b] = Transform3D(place_rot * g.basis.orthonormalized(), place * g.origin)
+	# Symmetric: each right bone is its left one mirrored, the middle ones sit on the middle.
+	var plane_c: Vector3 = place * ((_at("DEF-thigh.L") + _at("DEF-thigh.R")) * 0.5)
+	var plane_n: Vector3 = (place_rot * left).normalized()
+	_plane_c = plane_c
+	_plane_n = plane_n
+	var by_name := {}
+	for b in order:
+		by_name[_clean(sk.get_bone_name(b))] = b
+	for b in order:
+		var nm := _clean(sk.get_bone_name(b))
+		var other := _swap_side(nm)
+		if other == nm:
+			var g: Transform3D = glob[b]
+			glob[b] = Transform3D(g.basis, g.origin - plane_n * (g.origin - plane_c).dot(plane_n))
+		elif nm.contains(".R") and by_name.has(other):
+			glob[b] = _mirror_xf(glob[by_name[other]])
 	for b in order:
 		var i := nsk.get_bone_count()
 		nsk.add_bone(_clean(sk.get_bone_name(b)))
@@ -541,6 +550,7 @@ func _build(meshes: Array[MeshInstance3D], baked: Dictionary) -> Node3D:
 				var ob := _bind_bone(m.skin, bones[i])
 				nb[i] = bind_of.get(ob, 0)
 			arr[Mesh.ARRAY_BONES] = nb
+			_symmetrize(arr, skin, m.name)
 			mesh.add_surface_from_arrays(s[2], arr, s[1])
 			mesh.surface_set_material(mesh.get_surface_count() - 1, s[3])
 		var mi := MeshInstance3D.new()
@@ -552,6 +562,153 @@ func _build(meshes: Array[MeshInstance3D], baked: Dictionary) -> Node3D:
 	for n in [nsk] + nsk.get_children():
 		n.owner = root3
 	return root3
+
+
+var _plane_c := Vector3.ZERO   ## her middle plane in the new model's space
+var _plane_n := Vector3.RIGHT
+
+## "DEF-thigh.R" <-> "DEF-thigh.L", "DEF-upper_arm.R.001" <-> ".L.001", "DEF-f_index.03.R_end" <-> ".L_end".
+static func _swap_side(n: String) -> String:
+	var re := RegEx.create_from_string("\\.([LR])(\\.|_|$)")
+	var m := re.search(n)
+	if m == null:
+		return n
+	var side := "L" if m.get_string(1) == "R" else "R"
+	return n.substr(0, m.get_start(1)) + side + n.substr(m.get_end(1))
+
+
+func _mirror_p(p: Vector3) -> Vector3:
+	return p - _plane_n * 2.0 * (p - _plane_c).dot(_plane_n)
+
+
+func _mirror_v(v: Vector3) -> Vector3:
+	return v - _plane_n * 2.0 * v.dot(_plane_n)
+
+
+## A left bone's placement mirrored as a right bone's (one local axis flipped to stay right-handed).
+func _mirror_xf(t: Transform3D) -> Transform3D:
+	var b := Basis(_mirror_v(t.basis.x) * -1.0, _mirror_v(t.basis.y), _mirror_v(t.basis.z))
+	return Transform3D(b, _mirror_p(t.origin))
+
+
+## The right half made the mirror of the left (below the neck; her face and hair are drawn
+## asymmetric on purpose). Vertices are grouped by the bone that carries most of them; each right
+## group is first shifted onto its left group's mirror (it may sit a little off), then each right
+## vertex takes the position, normal and weights (sides swapped) of the mirrored left vertex it
+## lands on. A right vertex with no partner moves with its group's shift.
+const PAIR := 0.006   ## metres: closer than this, a right vertex and a mirrored left one are a pair
+const KEEP_AS_IS := ["DEF-head", "DEF-neck", "DEF-ear"]
+
+func _symmetrize(arr: Array, skin: Skin, mesh_name: String) -> void:
+	var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	var nrm: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+	var tan: PackedFloat32Array = arr[Mesh.ARRAY_TANGENT] if arr[Mesh.ARRAY_TANGENT] != null else PackedFloat32Array()
+	var bones: PackedInt32Array = arr[Mesh.ARRAY_BONES]
+	var w: PackedFloat32Array = arr[Mesh.ARRAY_WEIGHTS]
+	var per := bones.size() / v.size()
+	var names := []
+	var bind_of_name := {}
+	for i in skin.get_bind_count():
+		names.append(String(skin.get_bind_name(i)))
+		bind_of_name[names[i]] = i
+	var swap := []
+	for i in names.size():
+		swap.append(bind_of_name.get(_swap_side(names[i]), i))
+	var top := func(i: int) -> int:
+		var best := 0
+		for k in per:
+			if w[i * per + k] > w[i * per + best]:
+				best = k
+		return bones[i * per + best]
+	var groups_r := {}
+	var groups_l := {}
+	for i in v.size():
+		var d := (v[i] - _plane_c).dot(_plane_n)
+		var b: int = top.call(i)
+		var skip := false
+		for pre in KEEP_AS_IS:
+			if names[b].begins_with(pre):
+				skip = true
+		if skip or absf(d) < 0.002:
+			continue
+		if d > 0.0:
+			if not groups_l.has(b): groups_l[b] = []
+			groups_l[b].append(i)
+		else:
+			if not groups_r.has(b): groups_r[b] = []
+			groups_r[b].append(i)
+	var paired := 0
+	var moved := 0
+	var nv := v.duplicate()
+	var nn := nrm.duplicate()
+	var nt := tan.duplicate()
+	var nb := bones.duplicate()
+	var nw := w.duplicate()
+	for b in groups_r:
+		var lb: int = swap[b]
+		if not groups_l.has(lb):
+			continue
+		var targets: Array = groups_l[lb]
+		var grid := {}
+		var tp := PackedVector3Array()
+		for j in targets:
+			var q := _mirror_p(v[j])
+			tp.append(q)
+			var key := Vector3i((q / 0.02).floor())
+			if not grid.has(key): grid[key] = []
+			grid[key].append(tp.size() - 1)
+		var near := func(p: Vector3) -> int:
+			var c := Vector3i((p / 0.02).floor())
+			var best := -1
+			var bd := INF
+			for x in [-1, 0, 1]:
+				for y in [-1, 0, 1]:
+					for z in [-1, 0, 1]:
+						for k in grid.get(c + Vector3i(x, y, z), []):
+							var dd := p.distance_squared_to(tp[k])
+							if dd < bd:
+								bd = dd
+								best = k
+			return best
+		var shift := Vector3.ZERO
+		for _it in 8:
+			var sum := Vector3.ZERO
+			var cnt := 0
+			for i in groups_r[b]:
+				var k: int = near.call(v[i] + shift)
+				if k >= 0 and (v[i] + shift).distance_to(tp[k]) < 0.03:
+					sum += tp[k] - (v[i] + shift)
+					cnt += 1
+			if cnt == 0:
+				break
+			shift += sum / cnt
+		for i in groups_r[b]:
+			var k: int = near.call(v[i] + shift)
+			if k >= 0 and (v[i] + shift).distance_to(tp[k]) < PAIR:
+				var j: int = targets[k]
+				nv[i] = tp[k]
+				if nrm.size() == v.size():
+					nn[i] = _mirror_v(nrm[j])
+				if tan.size() == v.size() * 4:
+					var t := _mirror_v(Vector3(tan[j * 4], tan[j * 4 + 1], tan[j * 4 + 2]))
+					nt[i * 4] = t.x
+					nt[i * 4 + 1] = t.y
+					nt[i * 4 + 2] = t.z
+				for kk in per:
+					nb[i * per + kk] = swap[bones[j * per + kk]]
+					nw[i * per + kk] = w[j * per + kk]
+				paired += 1
+			else:
+				nv[i] = v[i] + shift
+				moved += 1
+	arr[Mesh.ARRAY_VERTEX] = nv
+	if nrm.size() == v.size():
+		arr[Mesh.ARRAY_NORMAL] = nn
+	if tan.size() == v.size() * 4:
+		arr[Mesh.ARRAY_TANGENT] = nt
+	arr[Mesh.ARRAY_BONES] = nb
+	arr[Mesh.ARRAY_WEIGHTS] = nw
+	print("symmetric %s: %d right vertices take their left pair, %d only shifted" % [mesh_name, paired, moved])
 
 
 static func _arc(a: Vector3, b: Vector3) -> Quaternion:
