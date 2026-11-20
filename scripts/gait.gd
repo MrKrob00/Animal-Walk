@@ -281,8 +281,10 @@ func update(delta: float, measured: float) -> int:
 		var free := 1.0 - hold
 		# Worn out: the free arm flails out for balance; a stumble throws both arms forward;
 		# bent over, the free hand goes to the knee.
-		var flail: float = ft * free * (0.55 + 0.35 * sin(phase * 1.3 + side[1] * 0.7))
-		swing += -0.45 * ft * free * sin(phase * 1.6 + 0.8) - 0.6 * st - 0.6 * wd * free
+		# (Smooth in time: whole steps' phase wraps every cycle, and a fraction of it jumped the
+		# arm each step; the player saw the free arm jerk.)
+		var flail: float = ft * free * (0.3 + 0.12 * sin(_time * 2.3 + side[1] * 0.7))
+		swing += -0.25 * ft * free * sin(_time * 3.1 + 0.8) - 0.6 * st - 0.6 * wd * free
 		elbow += -0.35 * ft * free - 0.12 * wd * free
 		_pose(_one("upper_arm_" + side[0]), swing + strike, 0.0, side[2] * ((0.07 * r + 0.02) * loco + flail))
 		_pose(_one("forearm_" + side[0]), elbow * (1.0 - 0.6 * hold), 0.0, 0.0)
