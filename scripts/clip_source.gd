@@ -5,6 +5,7 @@ extends RefCounted
 ## rotations at any time, without nodes, so each character can play its own phase.
 
 const PATH := "res://assets/anim/ual_standard.glb"
+const EXTRA := "res://assets/anim/crawl.res"
 
 static var _shared: ClipSource
 
@@ -40,8 +41,16 @@ func _load() -> void:
 			if not done.has(i) and (parent[i] < 0 or done.has(parent[i])):
 				order.append(i)
 				done[i] = true
+	var all := {}
 	for clip in ap.get_animation_list():
-		var anim := ap.get_animation(clip)
+		all[clip] = ap.get_animation(clip)
+	# Clips made for this game on the same skeleton (tools/make_crawl.gd): the army crawl.
+	if ResourceLoader.exists(EXTRA):
+		var lib: AnimationLibrary = load(EXTRA)
+		for clip in lib.get_animation_list():
+			all[String(clip)] = lib.get_animation(clip)
+	for clip in all:
+		var anim: Animation = all[clip]
 		clips[clip] = anim
 		var map := {}
 		for t in anim.get_track_count():

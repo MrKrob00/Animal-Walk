@@ -18,6 +18,13 @@ var hold_target := Vector3.INF   ## world point the right hand reaches to (the l
 var hold_pull := 0.0       ## 0..1: how hard the leash pulls the hand
 var speed := 0.0           ## smoothed speed used for the pose, m/s
 var dragged := false       ## set by the game: the leash is taut and pulls this character
+var crawling := false      ## set by the game: under something low, crawl (army crawl)
+var crawl := 0.0           ## 0..1 eased: how far down into the crawl
+var crawl_lift := 0.0      ## metres the body is raised lying down (a thick body would sink: "crawl_lift")
+var crawl_thick := 1.0     ## how thick the limbs are, for keeping them on the ground ("crawl_thick")
+var _finger_bones := []    ## the fingers' joints (flat on the ground while crawling)
+const CRAWL_TIME := 0.6    ## seconds to get down (or up)
+const TAIL_CRAWL := -1.4    ## radians the tail bends over its bones when lying down (back along the ground)
 var fatigue := 0.0         ## 0..1: builds while dragged at a run, goes when the pace is easy
 
 var _b := {}               ## role -> bone index, or Array of indices
@@ -120,6 +127,8 @@ func setup(skel: Skeleton3D, map: Dictionary, body: Node3D) -> void:
 		rt.setup(skel, cmap, body, hip_h, map.get("torso_swing", 1.0), map.get("clip_keep", []))
 	_clip_arms = map.get("clip_arms", false) and rt != null
 	_feminine = float(map.get("feminine", 0.0)) if rt != null else 0.0
+	crawl_lift = float(map.get("crawl_lift", 0.0))
+	crawl_thick = float(map.get("crawl_thick", 1.0))
 	var tl := _one("thigh_l")
 	var tr := _one("thigh_r")
 	if tl >= 0 and tr >= 0:
@@ -211,6 +220,8 @@ func update(delta: float, measured: float) -> int:
 	var clip_landed := 0
 	if rt != null:
 		# Real clips first; everything below is added on top of them.
+		crawl = move_toward(crawl, 1.0 if crawling else 0.0, delta / CRAWL_TIME)
+		rt.crawl = smoothstep(0.0, 1.0, crawl)
 		var res := rt.apply(delta, speed * (1.0 + 0.2 * fatigue * r0))
 		_offset = res[0]
 		clip_landed = res[1]
@@ -308,12 +319,13 @@ func update(delta: float, measured: float) -> int:
 	for b in _ids("tail"):
 		var drive := (0.3 * w * sin(phase) + 0.14 * idle * sin(_time * 1.3)) if k == 0 else prev
 		var t_yaw: float = _tail[k].step(drive - _turn * 0.08, delta, 6.0 - k, 0.3)
-		_pose_bone(b, -0.06 * w, t_yaw, 0.0)
+		_pose_bone(b, -0.06 * w + (TAIL_CRAWL / 3.0) * smoothstep(0.0, 1.0, crawl), t_yaw, 0.0)   # lying down, it lies back along the ground
 		prev = t_yaw
 		k += 1
 
 	_pulled_along(delta)
 	_reach_for_leash(delta)
+	_crawl_ground()
 	_soft_parts(delta)
 
 	if rt != null:
@@ -331,7 +343,7 @@ func update(delta: float, measured: float) -> int:
 func _tire(delta: float) -> float:
 	if not _tires:
 		return 0.0
-	var straining := (dragged or hold_pull > 0.6) and speed > walk_speed * 1.15
+	var straining := (dragged or hold_pull > 0.6) and speed > walk_speed * 1.15 and crawl < 0.5
 	if straining:
 		fatigue = minf(1.0, fatigue + delta / TIRE_TIME)
 	else:
@@ -376,6 +388,7 @@ func _stride() -> float:
 const SOFT_FREQ := 2.0     ## oscillations per second
 const SOFT_DAMP := 0.27    ## 0 = endless wobble, 1 = no overshoot
 const SOFT_MAX := 0.024     ## largest lag, as a share of the character's height
+const SOFT_FLOOR := 0.03  ## lying down, the chest's tip stays this share of her height above the ground
 const SOFT_GAIN := 0.6     ## share of the spring's lag shown: the clips swing the body three times
                            ## more than the old walk did, this keeps the chest's travel as it was
 
@@ -421,6 +434,11 @@ func _soft_parts(delta: float) -> void:
 		part[2] = x
 		part[3] = v
 		x = anchor + lag * SOFT_GAIN
+		# Lying on the forearms, the chest never sinks into the ground.
+		if crawl > 0.01 and _body != null and _body.get_parent() is Node3D:
+			var floor_y := (_body.get_parent() as Node3D).global_position.y + SOFT_FLOOR * _height_hint
+			if x.y < floor_y:
+				x.y = floor_y
 		var base := (to_sk * anchor) - g_root.origin
 		var moved := (to_sk * x) - g_root.origin
 		if base.length() < 1e-6:
@@ -443,7 +461,7 @@ func bob() -> float:
 ## Where the body sits this frame (metres, character space): the clips' hips, or the bob.
 func body_offset(height: float) -> Vector3:
 	if rt != null:
-		return _offset - Vector3(0, 0.06 * _hammer_env(0.0) * height, 0)
+		return _offset - Vector3(0, 0.06 * _hammer_env(0.0) * height, 0) + Vector3(0, crawl_lift * smoothstep(0.0, 1.0, crawl), 0)
 	return Vector3(0, bob() * height, 0)
 
 
@@ -451,7 +469,7 @@ func body_offset(height: float) -> Vector3:
 func body_lean() -> float:
 	var r := clampf((speed - walk_speed) / maxf(run_speed - walk_speed, 0.01), 0.0, 1.0)
 	var run_lean := 0.0 if rt != null else lerpf(0.02, 0.1, r) * clampf(speed / walk_speed, 0.0, 1.0)
-	return run_lean + lean - 0.1 * fatigue * r
+	return (run_lean + lean - 0.1 * fatigue * r) * (1.0 - crawl)
 
 
 func foot_position(left: bool) -> Vector3:
@@ -509,6 +527,72 @@ func _look_yaw() -> float:
 ## The right hand holds the leash: two-bone IK puts the wrist on a point toward the leash.
 ## Slack leash: the elbow is softly bent and the hand rides the steps; taut leash: the arm
 ## straightens toward TOFU. The fingers close around the leash.
+## Lying down, nothing goes into the ground: the fingers lie flat, and an arm or leg whose hand,
+## elbow, foot or knee would sink is bent (two bones) to rest on the ground instead; paws and
+## hands tip up off it. Sizes are shares of the height (limb thickness).
+const CRAWL_FLOOR := {"hand": 0.025, "elbow": 0.035, "foot": 0.035, "knee": 0.035, "tip": 0.012}
+
+func _crawl_ground() -> void:
+	var k := smoothstep(0.0, 1.0, crawl)
+	if k < 0.01 or _body == null or not (_body.get_parent() is Node3D):
+		return
+	for b in _finger_bones:
+		skeleton.set_bone_pose_rotation(b, _q[b].slerp(skeleton.get_bone_rest(b).basis.get_rotation_quaternion(), k))
+	var actor := _body.get_parent() as Node3D
+	var floor_y := actor.global_position.y
+	# This frame's body offset is set after this; count it in now.
+	var corr: Vector3 = actor.global_basis * (body_offset(_height_hint) - _body.position)
+	var sk_rot := skeleton.global_transform.basis.orthonormalized().get_rotation_quaternion()
+	var at := func(b: int) -> Vector3: return skeleton.global_transform * skeleton.get_bone_global_pose(b).origin + corr
+	var turn := func(b: int, q: Quaternion) -> void:
+		var g := skeleton.get_bone_global_pose(b).basis.orthonormalized().get_rotation_quaternion()
+		var qq := Quaternion.IDENTITY.slerp(q, k)
+		_set_global_rot(b, (sk_rot.inverse() * qq * sk_rot) * g)
+	var h := _height_hint
+	for limb in [["upper_arm_l", "forearm_l", "hand_l", "elbow", "hand"], ["upper_arm_r", "forearm_r", "hand_r", "elbow", "hand"], ["thigh_l", "shin_l", "foot_l", "knee", "foot"], ["thigh_r", "shin_r", "foot_r", "knee", "foot"]]:
+		var u := _one(limb[0])
+		var m := _one(limb[1])
+		var e := _one(limb[2])
+		if u < 0 or m < 0 or e < 0:
+			continue
+		var r_mid: float = CRAWL_FLOOR[limb[3]] * h * crawl_thick
+		var r_end: float = CRAWL_FLOOR[limb[4]] * h * crawl_thick
+		var S: Vector3 = at.call(u)
+		var M: Vector3 = at.call(m)
+		var E: Vector3 = at.call(e)
+		if E.y < floor_y + r_end or M.y < floor_y + r_mid:
+			var l1 := S.distance_to(M)
+			var l2 := M.distance_to(E)
+			var E2 := Vector3(E.x, maxf(E.y, floor_y + r_end), E.z)
+			var pole := Vector3(M.x, maxf(M.y, floor_y + r_mid) + 0.02 * h, M.z)
+			var d := clampf(S.distance_to(E2), absf(l1 - l2) + 1e-4, l1 + l2 - 1e-4)
+			var along := (E2 - S).normalized()
+			var side := pole - S
+			side = side - along * side.dot(along)
+			if side.length() < 1e-5:
+				continue
+			side = side.normalized()
+			var a := (l1 * l1 + d * d - l2 * l2) / (2.0 * d)
+			var M2 := S + along * a + side * sqrt(maxf(l1 * l1 - a * a, 0.0))
+			turn.call(u, _arc((M - S).normalized(), (M2 - S).normalized()))
+			var M3: Vector3 = at.call(m)
+			var E3: Vector3 = at.call(e)
+			turn.call(m, _arc((E3 - M3).normalized(), (E2 - M3).normalized()))
+		# The hand's fingers / the paw's toes: tipped up off the ground.
+		var tip := -1
+		if limb[4] == "hand":
+			tip = find_bone(skeleton, "DEF-f_middle.03." + limb[2].right(1).to_upper())
+		else:
+			tip = find_bone(skeleton, "DEF-toe." + limb[2].right(1).to_upper())
+		if tip >= 0:
+			var E4: Vector3 = at.call(e)
+			var T: Vector3 = at.call(tip)
+			var lo := floor_y + CRAWL_FLOOR["tip"] * h
+			if T.y < lo:
+				var want := Vector3(T.x, lo, T.z) - E4
+				turn.call(e, _arc((T - E4).normalized(), want.normalized()))
+
+
 ## Pulled along, she can't keep up (the player asked): the body goes after the leash hand. The
 ## spine bends forward, the chest turns so the leash shoulder leads, the free arm swings back for
 ## balance; the whole body leans forward too (the game sets `lean`). Grows with the leash's pull.
@@ -520,7 +604,7 @@ var _drag_k := 0.0
 
 
 func _pulled_along(delta: float) -> void:
-	_drag_k = lerpf(_drag_k, (1.0 if dragged and hold_target != Vector3.INF else 0.0) * clampf(_pull, 0.0, 1.0), 1.0 - exp(-3.0 * delta))
+	_drag_k = lerpf(_drag_k, (1.0 if dragged and hold_target != Vector3.INF and crawl < 0.01 else 0.0) * clampf(_pull, 0.0, 1.0), 1.0 - exp(-3.0 * delta))
 	if _drag_k < 0.01:
 		return
 	var spine := _ids("spine")
@@ -538,7 +622,7 @@ func _pulled_along(delta: float) -> void:
 
 func _reach_for_leash(delta: float) -> void:
 	# Slow, eased changes: the arm takes about half a second to come up or settle.
-	_hold = move_toward(_hold, 1.0 if hold_target != Vector3.INF else 0.0, delta * 2.2)
+	_hold = move_toward(_hold, 1.0 if hold_target != Vector3.INF and crawl < 0.05 else 0.0, delta * 2.2)   # crawling, both arms pull
 	_pull = lerpf(_pull, hold_pull, 1.0 - exp(-2.2 * delta))
 	var hold := smoothstep(0.0, 1.0, _hold)
 	for g in _grip:
@@ -687,7 +771,7 @@ func _twist_palm(s: String) -> void:
 	var normal := across.cross(axis).normalized()
 	if normal.dot(gp.call(thumb) - (gp.call(idx) + gp.call(pinky)) * 0.5) < 0.0:
 		normal = -normal
-	var want := -out_sk - _fwd_sk * 0.35
+	var want := (-out_sk - _fwd_sk * 0.35).normalized().lerp(-_up_sk, smoothstep(0.3, 0.9, crawl))   # crawling: palm down on the ground
 	want = (want - axis * want.dot(axis)).normalized()
 	var have := (normal - axis * normal.dot(axis)).normalized()
 	var angle := atan2(have.cross(want).dot(axis), have.dot(want))
@@ -720,7 +804,7 @@ func _feminine_walk() -> void:
 		return
 	var move := smoothstep(0.05, walk_speed * 0.5, speed)
 	var r := clampf((speed - walk_speed) / maxf(run_speed - walk_speed, 0.01), 0.0, 1.0)
-	var k := _feminine * move * (1.0 - 0.6 * r)
+	var k := _feminine * move * (1.0 - 0.6 * r) * (1.0 - crawl)
 	if k <= 0.001:
 		return
 	var ph := rt.phase * TAU          # 0 = the left foot lands; the left leg stands until 0.5
@@ -858,6 +942,7 @@ func _relax_fingers(f: Dictionary, s: String) -> void:
 			var cur: Vector3 = acc * (nxt - o.call(b)).normalized()
 			dir = Quaternion(dir.cross(normal).normalized(), curls[j] + (0.06 * i)) * dir
 			var q := _arc(cur, dir)
+			_finger_bones.append(b)
 			var g := Basis(acc) * skeleton.get_bone_global_rest(b).basis.orthonormalized()
 			_q[b] = skeleton.get_bone_rest(b).basis.get_rotation_quaternion() * Quaternion(g.inverse() * Basis(q) * g)
 			skeleton.set_bone_pose_rotation(b, _q[b])

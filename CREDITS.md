@@ -19,4 +19,6 @@ All models are used under Creative Commons Attribution 4.0 (CC BY 4.0): https://
 |---|---|---|---|
 | Universal Animation Library (Standard): idle, walk, jog, sprint | Quaternius | https://quaternius.com/packs/universalanimationlibrary.html | CC0 1.0 |
 
+The army crawl (`assets/anim/crawl.res`) is made for this project on the Universal Animation Library's skeleton.
+
 Everything else (terrain, trees, rocks, stake, shaders, code) is made for this project.

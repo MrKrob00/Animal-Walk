@@ -29,7 +29,7 @@ const BUNNY := {
 		"tail": ["DEF-spine.004"],
 		"soft": [["DEF-breast01.L", "DEF-breast04.L"], ["DEF-breast01.R", "DEF-breast04.R"]],
 		"arms_down": true,
-		"clip_arms": true, "torso_swing": 0.5, "feminine": 1.0,
+		"clip_arms": true, "torso_swing": 0.5, "feminine": 1.0, "crawl_lift": 0.085,
 		# Her legs keep their rabbit shape (knee forward, heel up); the clips move them from there.
 		"clip_keep": ["DEF-thigh.L", "DEF-shin.L", "DEF-foot.L", "DEF-toe.L", "DEF-thigh.R", "DEF-shin.R", "DEF-foot.R", "DEF-toe.R"],   # arms aimed like the clip's from arms-down (her V-sign rest wrings copied arms); half the clips' torso swing
 		"tires": true,
@@ -73,7 +73,9 @@ const TOFU := {
 		"thigh_r": "thigh.R", "shin_r": "shin.R", "foot_r": "foot.R",
 		"upper_arm_l": "upper_arm.L", "forearm_l": "forearm.L",
 		"upper_arm_r": "upper_arm.R", "forearm_r": "forearm.R",
+		"hand_l": "hand.L", "hand_r": "hand.R",
 		"tail": ["tail1", "tail2", "tail3"],
+		"crawl_lift": 0.09, "crawl_thick": 1.9,   # lying down, its thick body, big paws and sleeves would sink
 		"clips": {
 			"DEF-hips": "hips", "DEF-spine.001": "spine", "DEF-spine.003": "chest", "DEF-neck": "neck", "DEF-head": "head",
 			"DEF-upper_arm.L": "upper_arm.L", "DEF-forearm.L": "forearm.L", "DEF-hand.L": "hand.L",

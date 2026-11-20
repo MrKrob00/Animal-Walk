@@ -38,6 +38,9 @@ var to_char := Quaternion.IDENTITY   ## dst skeleton space -> character space (r
 var scale := 1.0       ## our hip height / the source's (for the hips' bob)
 var leg_scale := 1.0   ## our leg length / the source's (for how far a step goes)
 var phase := 0.0       ## 0..1 through the locomotion cycle, 0 = left foot lands
+var crawl := 0.0       ## 0..1: how far down into the army crawl (set by Gait)
+var crawl_phase := 0.0 ## 0..1 through the crawl cycle
+const CRAWL_STRIDE := 0.5   ## metres one crawl cycle moves the clip's own body (tools/make_crawl.gd)
 var idle_time := 0.0
 var speeds := {}       ## clip -> ground speed at our size, m/s
 var _contact := {}     ## clip -> where the left foot lands, 0..1
@@ -158,10 +161,16 @@ func apply(delta: float, speed: float) -> Array:
 	if wsum > 0.001:
 		phase = fposmod(phase + speed * delta / (cycle / wsum), 1.0)
 	idle_time += delta
-	var mix := [["Idle", idle_time, w["Idle"]]]
+	var stand := 1.0 - crawl
+	var mix := [["Idle", idle_time, w["Idle"] * stand]]
 	for c in LOCOMOTION:
 		var len: float = src.clips[c].length
-		mix.append([c, fposmod(phase + _contact[c], 1.0) * len, w[c]])
+		mix.append([c, fposmod(phase + _contact[c], 1.0) * len, w[c] * stand])
+	if crawl > 0.001 and src.clips.has("Crawl_Fwd"):
+		crawl_phase = fposmod(crawl_phase + speed * delta / (CRAWL_STRIDE * leg_scale), 1.0)
+		var go := smoothstep(0.02, 0.2, speed)
+		mix.append(["Crawl_Fwd", crawl_phase * src.clips["Crawl_Fwd"].length, crawl * go])
+		mix.append(["Crawl_Idle", idle_time, crawl * (1.0 - go)])
 	var s := src.sample(mix, _calm)
 	var g := src.globals(s[0], s[1])
 	_last = g
@@ -184,7 +193,7 @@ func apply(delta: float, speed: float) -> Array:
 		done[d] = want
 	var hips_off := (g[_hips_src].origin - _hips_rest) * scale
 	var landed := 0
-	if wsum > 0.001:
+	if wsum > 0.001 and crawl < 0.5:   # no footprints while crawling
 		if before > phase:
 			landed = 1          # wrapped: the left foot lands
 		elif before < 0.5 and phase >= 0.5:
