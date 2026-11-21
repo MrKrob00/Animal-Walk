@@ -170,6 +170,31 @@ for o in meshes:
             o.vertex_groups["thumb" + s_].add([v.index], wt, 'REPLACE')
     print("paw weighted", o.name)
 
+# 3c. The face rides on the head as one piece (the player saw the brows wrongly bound): weighted
+# by distance, the face skin blended neck and head over the snout's whole height, while the eyes,
+# brows and nose are rigid on the head, so a nod or a turn slid them off the face. Now all the
+# head mesh above the collar is on the head; it turns into the neck's weights under the collar.
+HEAD_LO, HEAD_HI = 3.24, 3.34   # the collar sits at about 3.28
+for o in meshes:
+    if not o.name.startswith("Retopo_Pants.R_high_"):
+        continue
+    gi = {g.index: g.name for g in o.vertex_groups}
+    for v in o.data.vertices:
+        wh = smooth(HEAD_LO, HEAD_HI, v.co.z)
+        rest = {gi[g.group]: g.weight for g in v.groups if gi[g.group] != "head" and g.weight > 0.0}
+        tot = sum(rest.values())
+        for g in list(v.groups):
+            o.vertex_groups[gi[g.group]].remove([v.index])
+        if tot <= 0.0:
+            rest = {"neck": 1.0}
+            tot = 1.0
+        if wh < 1.0:
+            for n_, w_ in rest.items():
+                o.vertex_groups[n_].add([v.index], w_ / tot * (1.0 - wh), 'REPLACE')
+        if wh > 0.0:
+            o.vertex_groups["head"].add([v.index], wh, 'REPLACE')
+    print("face on the head", o.name)
+
 # 4. One mesh, skinned to the rig.
 bpy.ops.object.select_all(action='DESELECT')
 for o in meshes:
