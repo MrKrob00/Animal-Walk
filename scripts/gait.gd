@@ -837,16 +837,24 @@ func _sit_pose(delta: float) -> void:
 ## down by body_offset, so the chest and flesh springs feel the take-off, the float and the
 ## landing by themselves. Limbs by two-bone IK to targets from the hips:
 ##   "hop"      (the bunny): crouch, arms swing back; take-off with the arms forward and up, the
-##              legs tucked back under her like a hare's; land into a soft squat.
+##              legs trailing after the push, tucked up under her at the top, reaching down to
+##              land; land into a soft squat.
 ##   "surprise" (TOFU, a red panda's "surprise!"): a low crouch with the tail swishing, then a
-##              high leap with the front paws flung up and out, claws curled, a whole turn in the
-##              air, the tail streaming; land with a bounce.
+##              high leap with the front paws flung up and out, claws curled, the tail
+##              streaming; land with a bounce (it turned round in the air: the player did not
+##              want that).
 const JUMP := {
 	"hop": {"crouch": 0.16, "depth": 0.10, "height": 0.45, "land": 0.28, "squash": 0.08, "spin": 0.0,
-		"arms_back": -0.6, "arms_up": 1.3, "arms_out": 0.0, "tuck": Vector3(0.02, -0.33, -0.16), "swish": 0.0},
-	"surprise": {"crouch": 0.24, "depth": 0.12, "height": 0.55, "land": 0.32, "squash": 0.1, "spin": TAU,
-		"arms_back": -0.3, "arms_up": 0.0, "arms_out": 2.3, "tuck": Vector3(0.06, -0.24, 0.06), "swish": 0.9},
-}   ## seconds / metres / radians; "tuck": the ankle in the air from the hip (x out, y up, z forward)
+		"arms_back": -0.6, "arms_up": 1.3, "arms_out": 0.0, "swish": 0.0,
+		# Pushed off, trailing back; tucked up under her at the top; reaching down to land.
+		"legs": [[0.0, Vector3(0.02, -0.44, -0.20)], [0.45, Vector3(0.03, -0.27, -0.06)], [0.85, Vector3(0.02, -0.42, 0.08)], [1.0, Vector3(0.02, -0.46, 0.03)]]},
+	"surprise": {"crouch": 0.24, "depth": 0.12, "height": 0.55, "land": 0.32, "squash": 0.1, "spin": 0.0,
+		"arms_back": -0.3, "arms_up": 0.0, "arms_out": 2.3, "swish": 0.9,
+		"legs": [[0.0, Vector3(0.05, -0.36, -0.10)], [0.45, Vector3(0.07, -0.22, 0.06)], [0.85, Vector3(0.06, -0.33, 0.06)], [1.0, Vector3(0.06, -0.36, 0.03)]]},
+}   ## seconds / metres / radians; "legs": the ankle through the flight from the hip (x out, y up,
+    ## z forward) at shares of the flight, eased between (held in one tuck the whole flight, her
+    ## legs flew stiff and the player found it odd); "spin" none for TOFU now (the player)
+const LEG_LEAD := 0.04   ## the left leg runs this share of the flight ahead of the right
 const GRAVITY := 9.8
 
 var jump_style := "hop"     ## set by the actor ("jump" in its map)
@@ -946,7 +954,7 @@ func _jump_pose(delta: float) -> void:
 	match ph[0]:
 		"crouch": crouch = smoothstep(0.0, 1.0, u)
 		"air":
-			air = smoothstep(0.0, 0.25, u) * (1.0 - smoothstep(0.8, 1.0, u))
+			air = smoothstep(0.0, 0.12, u) * (1.0 - smoothstep(0.92, 1.0, u))
 			crouch = 1.0 - smoothstep(0.0, 0.15, u)
 		"land": crouch = sin(PI * u) * (1.0 - 0.3 * u)
 	# The back bends into the crouch.
@@ -983,7 +991,7 @@ func _jump_pose(delta: float) -> void:
 		var ra: Vector3 = _rest_ankle[side[0]]
 		var ground_ankle: Vector3 = H + out * ra.x + fwd * ra.z
 		ground_ankle.y = floor_y + ra.y
-		var tuck: Vector3 = j.tuck
+		var tuck := _leg_path(j.legs, clampf(u + (LEG_LEAD if side[0] == "l" else 0.0), 0.0, 1.0)) if ph[0] == "air" else (j.legs[0][1] as Vector3)
 		var air_ankle: Vector3 = H + out * tuck.x + Vector3.UP * tuck.y + fwd * tuck.z
 		var want := ground_ankle.lerp(air_ankle, air)
 		if ph[0] == "air" and air < 0.01:
@@ -998,6 +1006,16 @@ func _jump_pose(delta: float) -> void:
 				turn.call(b, Quaternion(Vector3.UP, float(j.swish) / 3.0 * sin(_jump_t * 28.0) * crouch))
 			elif ph[0] == "air":
 				turn.call(b, Quaternion(left, 0.35 * air))
+
+
+## The ankle's place along a flight path of [share, Vector3] keys, eased between them.
+static func _leg_path(keys: Array, u: float) -> Vector3:
+	for i in range(1, keys.size()):
+		if u <= float(keys[i][0]):
+			var a: float = keys[i - 1][0]
+			var t := (u - a) / maxf(float(keys[i][0]) - a, 1e-4)
+			return (keys[i - 1][1] as Vector3).lerp(keys[i][1], t * t * (3.0 - 2.0 * t))
+	return keys[-1][1]
 
 
 ## Two-bone IK in the world: `u` -> `m` -> `e` so the end reaches `target`, the middle joint

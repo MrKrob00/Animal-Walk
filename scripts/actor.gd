@@ -85,7 +85,7 @@ const BUNNY := {
 ## TOFU: the red panda on the leash (rig made by tools/blender/rig_tofu.py).
 const TOFU := {
 	"path": "res://assets/tofu_rigged.glb", "height": 1.1,
-	"jump": "surprise",   # the jump button: a red panda's "surprise!" leap with a turn (Gait.JUMP)
+	"jump": "surprise",   # the jump button: a red panda's "surprise!" leap (Gait.JUMP; no turn, the player)
 	"sit": "dog",   # the sit button: sitting like a dog (the player chose it; Gait.SIT)
 	"eye": Vector3(0, 0.09, 0.03),   # first person: from its head bone (back from its long snout, so the collar shows below)
 	"walk": 1.6, "run": 3.8, "stride": 1.1, "run_stride": 2.0, "radius": 0.25,
@@ -431,7 +431,7 @@ func animate(delta: float, spd: float) -> void:
 				m.set_shader_parameter("flesh_r", gait.flesh_offset[1])
 				m.set_shader_parameter("flesh_b", gait.flesh_offset[2])
 	body.rotation.x = lerpf(body.rotation.x, gait.body_lean(), 1.0 - exp(-8.0 * delta))
-	body.rotation.y = gait.jump_spin()   # TOFU turns round in the air
+	body.rotation.y = gait.jump_spin()   # a turn in the air, for a jump that has one
 	if landed != 0:
 		if landed == 2:   # landing a jump: both feet, and a bigger puff
 			footstep.emit(gait.foot_position(true), float(data.height) / 1.6 * 1.4)

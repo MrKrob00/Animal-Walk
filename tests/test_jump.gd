@@ -1,6 +1,6 @@
 extends SceneTree
 ## The jump button (the player asked): the one you steer jumps - the bunny a hare's hop, TOFU a
-## red panda's "surprise!" leap with a whole turn. It leaves the ground as high as meant, the feet
+## red panda's "surprise!" leap (no turn: the player). It leaves the ground as high as meant, the feet
 ## hold the ground in the crouch and the landing (none under it), no steps in the air, two prints
 ## and a puff on landing, no second jump in the air; the bunny's chest and hips move with it
 ## and settle after; sitting, the button gets her up instead.
@@ -32,6 +32,8 @@ func _jump(a: Actor, style: String) -> void:
 	var spin := 0.0
 	var second := false
 	var soft := 0.0
+	var ankle_min := Vector3.INF
+	var ankle_max := -Vector3.INF
 	for i in 120:
 		await physics_frame
 		await process_frame
@@ -40,6 +42,13 @@ func _jump(a: Actor, style: String) -> void:
 		var fy := minf(_foot_y(a, "l"), _foot_y(a, "r"))
 		if a.gait.airborne():
 			feet_top = maxf(feet_top, fy)
+			var sk := a.skeleton
+			var hip: Vector3 = sk.global_transform * sk.get_bone_global_pose(Gait.find_bone(sk, a.data.bones.thigh_l)).origin
+			var an: Vector3 = sk.global_transform * sk.get_bone_global_pose(Gait.find_bone(sk, a.data.bones.foot_l)).origin
+			var rel := an - hip
+			rel = Vector3(rel.dot(a.global_basis.x.normalized()), rel.y, rel.dot(a.global_basis.z.normalized()))
+			ankle_min = ankle_min.min(rel)
+			ankle_max = ankle_max.max(rel)
 			if prints[0] > 0:
 				in_air_steps += 1
 			if not second and main.jump():
@@ -58,8 +67,9 @@ func _jump(a: Actor, style: String) -> void:
 	Check.ok(in_air_steps == 0 and prints[0] >= 2, "%s: no steps in the air, prints on landing (%d)" % [style, prints[0]])
 	Check.ok(not second, "%s: no second jump in the air" % style)
 	Check.ok(not a.gait.jumping() and absf(a.body.rotation.y) < 0.001, "%s: landed and done" % style)
-	if float(spec.spin) > 0.0:
-		Check.ok(spin > 3.0, "%s: a whole turn in the air" % style)
+	Check.ok(spin < 0.001, "%s: no turn in the air" % style)
+	var travel := ankle_max - ankle_min
+	Check.ok(travel.y > 0.1 and travel.z > 0.1, "%s: the legs move through the flight, not held stiff (%.0f cm up-down, %.0f cm back-forth)" % [style, travel.y * 100, travel.z * 100])
 	if style == "hop":
 		Check.ok(soft > 0.008, "hop: her chest and hips move with it (%.1f cm at most)" % (soft * 100))
 
