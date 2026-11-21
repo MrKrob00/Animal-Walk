@@ -28,6 +28,7 @@ var view_button: ViewButton
 var switch_button: SwitchButton
 var arm_stick: ArmStick
 var sit_button: SitButton
+var jump_button: JumpButton
 var camera_rig: CameraRig
 var forced_input := Vector2.ZERO   ## scripted runs (screenshots, tests)
 var forced_run := false
@@ -109,6 +110,9 @@ func _ready() -> void:
 	sit_button = SitButton.new()
 	ui.add_child(sit_button)
 	sit_button.pressed.connect(sit_toggle)
+	jump_button = JumpButton.new()
+	ui.add_child(jump_button)
+	jump_button.pressed.connect(jump)
 	view_button = ViewButton.new()
 	ui.add_child(view_button)
 	view_button.pressed.connect(toggle_view)
@@ -120,7 +124,7 @@ func _ready() -> void:
 	camera_rig.target = tofu
 	camera_rig.second = bunny
 	camera_rig.button = button
-	camera_rig.buttons = [view_button, switch_button, arm_stick, sit_button]
+	camera_rig.buttons = [view_button, switch_button, arm_stick, sit_button, jump_button]
 	camera_rig.stick_zone = TouchJoystick.ZONE
 	add_child(camera_rig)
 
@@ -134,6 +138,20 @@ func _unhandled_input(event: InputEvent) -> void:
 		switch_character()
 	elif event.is_action_pressed("sit"):
 		sit_toggle()
+	elif event.is_action_pressed("jump"):
+		jump()
+
+
+## The jump button: the one you steer jumps (the bunny a hare's hop, TOFU its "surprise!" leap
+## with a turn). Sitting, it gets up instead; not while crawling or hammering.
+func jump() -> bool:
+	var who := steered()
+	if who.gait.sitting:
+		who.gait.sitting = false
+		return false
+	if who == bunny and _busy > 0.0:
+		return false
+	return who.gait.jump()
 
 
 ## The sit button: the one you steer sits down, or gets up (the player asked; the bunny in her
@@ -493,7 +511,8 @@ func _setup_input() -> void:
 		"move_up": [KEY_W, KEY_UP],
 		"move_down": [KEY_S, KEY_DOWN],
 		"run": [KEY_SHIFT],
-		"act": [KEY_SPACE, KEY_E],
+		"act": [KEY_E],
+		"jump": [KEY_SPACE],
 		"view": [KEY_V],
 		"switch": [KEY_TAB],
 		"sit": [KEY_C],

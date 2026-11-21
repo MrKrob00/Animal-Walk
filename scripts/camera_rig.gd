@@ -68,7 +68,10 @@ func _focus() -> Vector3:
 	var low := 0.0
 	if "gait" in target and target.gait != null:
 		low = smoothstep(0.0, 1.0, target.gait.crawl)
-	return f + Vector3(0, lerpf(LOOK_HEIGHT, LOOK_HEIGHT_CRAWL, low), 0)   # down with a crawler
+	var up := 0.0
+	if "gait" in target and target.gait != null:
+		up = maxf(target.gait.jump_height(), 0.0) * 0.6   # up after a jump (close up, the head left the frame)
+	return f + Vector3(0, lerpf(LOOK_HEIGHT, LOOK_HEIGHT_CRAWL, low) + up, 0)   # down with a crawler
 
 
 ## The ground directions the stick means: [right, forward] (unit, horizontal).

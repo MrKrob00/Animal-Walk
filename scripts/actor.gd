@@ -11,6 +11,7 @@ signal footstep(pos: Vector3, size: float)
 const BUNNY := {
 	# Her T-posed model with a clean skeleton (tools/tpose_bunny.gd makes it from the Sketchfab file).
 	"path": "res://assets/chobby_tpose.glb", "height": 1.6, "sole": 0.032,
+	"jump": "hop",   # the jump button: a hare's hop (Gait.JUMP)
 	"sit": "w",   # the sit button: her "frog" W-sit (the player chose it; Gait.SIT)
 	"soft_press": true,   # lying down, her chest, belly and thighs give against the ground (per vertex)
 	"flesh": ["Object_11", "Object_672"],   # her butt, thighs and belly are soft and springy (SoftFlesh; the player asked): skin and shorts
@@ -84,6 +85,7 @@ const BUNNY := {
 ## TOFU: the red panda on the leash (rig made by tools/blender/rig_tofu.py).
 const TOFU := {
 	"path": "res://assets/tofu_rigged.glb", "height": 1.1,
+	"jump": "surprise",   # the jump button: a red panda's "surprise!" leap with a turn (Gait.JUMP)
 	"sit": "dog",   # the sit button: sitting like a dog (the player chose it; Gait.SIT)
 	"eye": Vector3(0, 0.09, 0.03),   # first person: from its head bone (back from its long snout, so the collar shows below)
 	"walk": 1.6, "run": 3.8, "stride": 1.1, "run_stride": 2.0, "radius": 0.25,
@@ -173,6 +175,7 @@ func _ready() -> void:
 		gait.run_stride = data.run_stride
 		gait._height_hint = float(data.height)
 		gait.sit_style = String(data.get("sit", ""))
+		gait.jump_style = String(data.get("jump", ""))
 		if gait.rt != null:
 			gait.rt.height = float(data.height)
 		gait.walk_speed = data.walk
@@ -428,5 +431,10 @@ func animate(delta: float, spd: float) -> void:
 				m.set_shader_parameter("flesh_r", gait.flesh_offset[1])
 				m.set_shader_parameter("flesh_b", gait.flesh_offset[2])
 	body.rotation.x = lerpf(body.rotation.x, gait.body_lean(), 1.0 - exp(-8.0 * delta))
+	body.rotation.y = gait.jump_spin()   # TOFU turns round in the air
 	if landed != 0:
-		footstep.emit(gait.foot_position(landed > 0), float(data.height) / 1.6)
+		if landed == 2:   # landing a jump: both feet, and a bigger puff
+			footstep.emit(gait.foot_position(true), float(data.height) / 1.6 * 1.4)
+			footstep.emit(gait.foot_position(false), float(data.height) / 1.6 * 1.4)
+		else:
+			footstep.emit(gait.foot_position(landed > 0), float(data.height) / 1.6)

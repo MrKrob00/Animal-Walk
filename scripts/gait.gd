@@ -341,6 +341,7 @@ func update(delta: float, measured: float) -> int:
 
 	_pulled_along(delta)
 	_sit_pose(delta)
+	_jump_pose(delta)
 	_reach_for_leash(delta)
 	_paw_reach(delta)
 	_crawl_ground()
@@ -348,6 +349,11 @@ func update(delta: float, measured: float) -> int:
 	_flesh_springs(delta)
 
 	if rt != null:
+		if airborne():
+			return 0   # no steps in the air
+		if _jump_landed:
+			_jump_landed = false
+			return 2   # both feet down at once (the actor leaves two prints)
 		return clip_landed
 	var sign := 1 if s > 0.0 else -1
 	var landed := 0
@@ -558,7 +564,7 @@ func bob() -> float:
 ## Where the body sits this frame (metres, character space): the clips' hips, or the bob.
 func body_offset(height: float) -> Vector3:
 	if rt != null:
-		return _offset - Vector3(0, 0.06 * _hammer_env(0.0) * height, 0) + Vector3(0, crawl_lift * smoothstep(0.0, 1.0, crawl), 0) - Vector3(0, _sit_drop() * smoothstep(0.0, 1.0, sit), 0)
+		return _offset - Vector3(0, 0.06 * _hammer_env(0.0) * height, 0) + Vector3(0, crawl_lift * smoothstep(0.0, 1.0, crawl), 0) - Vector3(0, _sit_drop() * smoothstep(0.0, 1.0, sit), 0) + Vector3(0, jump_height(), 0)
 	return Vector3(0, bob() * height, 0)
 
 
@@ -821,6 +827,174 @@ func _sit_pose(delta: float) -> void:
 		var S: Vector3 = at.call(u)
 		var E: Vector3 = at.call(e)
 		_ik_world(u, m, e, E.lerp(want, k), S - Vector3.UP * 0.3 + out * 0.3 - fwd * 0.2, turn, at)
+
+
+## Jumping (the jump button; the player asked: the bunny's chest and hips moving with it, TOFU
+## a jump of its own). A crouch, a ballistic flight, a landing that gives; the body goes up and
+## down by body_offset, so the chest and flesh springs feel the take-off, the float and the
+## landing by themselves. Limbs by two-bone IK to targets from the hips:
+##   "hop"      (the bunny): crouch, arms swing back; take-off with the arms forward and up, the
+##              legs tucked back under her like a hare's; land into a soft squat.
+##   "surprise" (TOFU, a red panda's "surprise!"): a low crouch with the tail swishing, then a
+##              high leap with the front paws flung up and out, claws curled, a whole turn in the
+##              air, the tail streaming; land with a bounce.
+const JUMP := {
+	"hop": {"crouch": 0.16, "depth": 0.10, "height": 0.45, "land": 0.28, "squash": 0.08, "spin": 0.0,
+		"arms_back": -0.6, "arms_up": 1.3, "arms_out": 0.0, "tuck": Vector3(0.02, -0.33, -0.16), "swish": 0.0},
+	"surprise": {"crouch": 0.24, "depth": 0.12, "height": 0.55, "land": 0.32, "squash": 0.1, "spin": TAU,
+		"arms_back": -0.3, "arms_up": 0.0, "arms_out": 2.3, "tuck": Vector3(0.06, -0.24, 0.06), "swish": 0.9},
+}   ## seconds / metres / radians; "tuck": the ankle in the air from the hip (x out, y up, z forward)
+const GRAVITY := 9.8
+
+var jump_style := "hop"     ## set by the actor ("jump" in its map)
+var _jump_t := -1.0         ## seconds since the jump began; < 0: not jumping
+var _jump_landed := false
+var _rest_ankle := {}       ## side -> the ankle's place under the hip standing (body frame), measured once
+
+
+## Starts a jump; false when it can't (already jumping, sitting, crawling).
+func jump() -> bool:
+	if _jump_t >= 0.0 or sit > 0.05 or crawl > 0.05 or not JUMP.has(jump_style):
+		return false
+	_jump_t = 0.0
+	return true
+
+
+func jumping() -> bool:
+	return _jump_t >= 0.0
+
+
+func _air_time() -> float:
+	return 2.0 * sqrt(2.0 * float(JUMP[jump_style].height) / GRAVITY)
+
+
+## In the air (between take-off and landing).
+func airborne() -> bool:
+	if _jump_t < 0.0:
+		return false
+	var j: Dictionary = JUMP[jump_style]
+	return _jump_t > float(j.crouch) and _jump_t < float(j.crouch) + _air_time()
+
+
+## [phase, 0..1]: "crouch", "air", "land".
+func _jump_phase() -> Array:
+	var j: Dictionary = JUMP[jump_style]
+	var c := float(j.crouch)
+	var a := _air_time()
+	if _jump_t < c:
+		return ["crouch", _jump_t / c]
+	if _jump_t < c + a:
+		return ["air", (_jump_t - c) / a]
+	return ["land", clampf((_jump_t - c - a) / float(j.land), 0.0, 1.0)]
+
+
+## The body's height from the jump (metres; negative crouching).
+func jump_height() -> float:
+	if _jump_t < 0.0:
+		return 0.0
+	var j: Dictionary = JUMP[jump_style]
+	var ph := _jump_phase()
+	var u: float = ph[1]
+	match ph[0]:
+		"crouch":
+			return -float(j.depth) * smoothstep(0.0, 1.0, u)
+		"air":
+			return 4.0 * float(j.height) * u * (1.0 - u) - float(j.depth) * maxf(0.0, 1.0 - u / 0.12)
+	return -float(j.squash) * sin(PI * u) * (1.0 - 0.3 * u)
+
+
+## The turn in the air about the vertical (radians), for the actor's body.
+func jump_spin() -> float:
+	if _jump_t < 0.0:
+		return 0.0
+	var ph := _jump_phase()
+	if ph[0] != "air":
+		return 0.0
+	var u: float = ph[1]
+	return float(JUMP[jump_style].spin) * u * u * (3.0 - 2.0 * u)
+
+
+func _jump_pose(delta: float) -> void:
+	if _jump_t < 0.0 or _body == null or not (_body.get_parent() is Node3D):
+		return
+	var j: Dictionary = JUMP[jump_style]
+	var was_air := airborne()
+	_jump_t += delta
+	if was_air and not airborne():
+		_jump_landed = true
+	if _jump_t > float(j.crouch) + _air_time() + float(j.land):
+		_jump_t = -1.0
+		return
+	var ph := _jump_phase()
+	var u: float = ph[1]
+	var actor := _body.get_parent() as Node3D
+	var floor_y := actor.global_position.y
+	var fwd := actor.global_basis.z.normalized()
+	var left := actor.global_basis.x.normalized()
+	var sk_rot := skeleton.global_transform.basis.orthonormalized().get_rotation_quaternion()
+	var corr: Vector3 = actor.global_basis * (body_offset(_height_hint) - _body.position)
+	var at := func(b: int) -> Vector3: return skeleton.global_transform * skeleton.get_bone_global_pose(b).origin + corr
+	var turn := func(b: int, q: Quaternion) -> void:
+		var g := skeleton.get_bone_global_pose(b).basis.orthonormalized().get_rotation_quaternion()
+		_set_global_rot(b, (sk_rot.inverse() * q * sk_rot) * g)
+	# How much of the crouch / flight pose: in and out smoothly.
+	var crouch := 0.0
+	var air := 0.0
+	match ph[0]:
+		"crouch": crouch = smoothstep(0.0, 1.0, u)
+		"air":
+			air = smoothstep(0.0, 0.25, u) * (1.0 - smoothstep(0.8, 1.0, u))
+			crouch = 1.0 - smoothstep(0.0, 0.15, u)
+		"land": crouch = sin(PI * u) * (1.0 - 0.3 * u)
+	# The back bends into the crouch.
+	var sp := _ids("spine")
+	if not sp.is_empty():
+		turn.call(sp[0], Quaternion(left, 0.3 * crouch))
+	# Arms: back in the crouch, then up (forward) or flung up and out in the air.
+	for side in [["l", 1.0], ["r", -1.0]]:
+		var ua := _one("upper_arm_" + side[0])
+		var fa := _one("forearm_" + side[0])
+		if ua < 0:
+			continue
+		var q := Quaternion(left, -float(j.arms_up) * air) * Quaternion(left, -float(j.arms_back) * crouch)
+		if float(j.arms_out) > 0.0:
+			q = Quaternion(fwd, float(j.arms_out) * air * side[1]) * q
+		turn.call(ua, q)
+		if fa >= 0 and float(j.arms_out) > 0.0:
+			turn.call(fa, Quaternion(left, -0.6 * air))   # claws up, elbows bent
+	# Legs: on the ground the ankles stay where they stand (the knees bend as the hips go down);
+	# in the air they tuck.
+	for side in [["l", 1.0], ["r", -1.0]]:
+		var u_ := _one("thigh_" + side[0])
+		var m := _one("shin_" + side[0])
+		var e := _one("foot_" + side[0])
+		if u_ < 0 or m < 0 or e < 0:
+			continue
+		var out: Vector3 = left * side[1]
+		var H: Vector3 = at.call(u_)
+		if not _rest_ankle.has(side[0]):
+			var hr := skeleton.global_transform * skeleton.get_bone_global_rest(u_).origin
+			var ar := skeleton.global_transform * skeleton.get_bone_global_rest(e).origin
+			var d := ar - hr
+			_rest_ankle[side[0]] = Vector3(d.dot(out), ar.y - (actor.global_position.y + _body.position.y), d.dot(fwd))
+		var ra: Vector3 = _rest_ankle[side[0]]
+		var ground_ankle: Vector3 = H + out * ra.x + fwd * ra.z
+		ground_ankle.y = floor_y + ra.y
+		var tuck: Vector3 = j.tuck
+		var air_ankle: Vector3 = H + out * tuck.x + Vector3.UP * tuck.y + fwd * tuck.z
+		var want := ground_ankle.lerp(air_ankle, air)
+		if ph[0] == "air" and air < 0.01:
+			continue   # just off the ground / just about to land: the clip's legs
+		var E: Vector3 = at.call(e)
+		var k := maxf(crouch, air)
+		_ik_world(u_, m, e, E.lerp(want, k), H + fwd * 0.6 + Vector3.UP * 0.1, turn, at)
+	# TOFU's tail: swishing in the crouch, streaming behind in the air.
+	if float(j.swish) > 0.0:
+		for b in _ids("tail"):
+			if ph[0] == "crouch":
+				turn.call(b, Quaternion(Vector3.UP, float(j.swish) / 3.0 * sin(_jump_t * 28.0) * crouch))
+			elif ph[0] == "air":
+				turn.call(b, Quaternion(left, 0.35 * air))
 
 
 ## Two-bone IK in the world: `u` -> `m` -> `e` so the end reaches `target`, the middle joint
