@@ -124,6 +124,9 @@ func _build_maps() -> void:
 	var wide := (_gc("DEF-thigh.L") - _gc("DEF-thigh.R")).length() / (_ga("LeftUpLeg") - _ga("RightUpLeg")).length()
 	skirt = {"a0": ha, "x": Vector3.RIGHT, "y": Vector3.UP, "z": Vector3.BACK, "c0": hc, "rot": Quaternion.IDENTITY, "sy": fig, "sr": wide}
 	print("skirt: length x", snapped(fig, 0.01), " width x", snapped(wide, 0.01), " (girth x", snapped(maps.Hips.sr, 0.01), ")")
+	# The pelvis goes by it too, for every garment: by the pelvis bone (three times longer on her)
+	# a dress's waist and skirt pulled apart from what hangs on the spine.
+	maps["Hips"] = skirt
 
 
 ## Median distance of a body's skin from each bone's line (verts mostly on that bone).
@@ -303,7 +306,10 @@ func _fit(g: MeshInstance3D, cb: Dictionary, slot: String) -> ArrayMesh:
 			var rest := ska.get_bone_global_rest(bone) * g.skin.get_bind_pose(bind)
 			var name := _mapped(bone)
 			var rp: Vector3 = rest * vs[v]
-			if slot == "dress" and rp.y < hip_a and (name.contains("Leg") or name == "Hips"):
+			# A dress: all it hangs on the pelvis and legs by goes by the skirt's map, whatever the
+			# height (by the pelvis bone above the hip line and the skirt's map below, it stepped
+			# out in a shelf at the hip line: the player saw it).
+			if slot == "dress" and (name.contains("Leg") or name == "Hips"):
 				name = "skirt"
 			p += _map_point(name, rp) * w
 			nrm += (((skirt if name == "skirt" else maps[name]).rot as Quaternion) * (rest.basis * ns[v])) * w
