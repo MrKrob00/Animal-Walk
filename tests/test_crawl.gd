@@ -49,6 +49,30 @@ func _run() -> void:
 			a.animate(1.0 / 60.0, rt.crawl_speed())
 			turns += fposmod(rt.crawl_phase - last, 1.0)
 			last = rt.crawl_phase
+		# No jerks (the player saw the legs jerk, as the arm once did): no knee, ankle or elbow
+		# changes speed by more than 1.5 cm a frame in a frame (it was 12 at each draw-up).
+		var joints := []
+		for role in ["shin_l", "shin_r", "foot_l", "foot_r", "forearm_l", "forearm_r"]:
+			joints.append(Gait.find_bone(sk, who.bones[role]))
+		var pel := Gait.find_bone(sk, who.bones.pelvis)
+		var hist := []
+		var jerk := 0.0
+		var hip_y := []
+		for i in 240:
+			a.position += Vector3(0, 0, rt.crawl_speed() / 60.0)
+			a.animate(1.0 / 60.0, rt.crawl_speed())
+			var P: Vector3 = sk.global_transform * sk.get_bone_global_pose(pel).origin
+			hip_y.append(P.y - a.global_position.y)
+			var cur := []
+			for b in joints:
+				cur.append(sk.global_transform * sk.get_bone_global_pose(b).origin - P)
+			hist.append(cur)
+			if hist.size() >= 3:
+				for k in joints.size():
+					jerk = maxf(jerk, (hist[-1][k] - 2.0 * hist[-2][k] + hist[-3][k]).length())
+		Check.ok(jerk < 0.015, "%s: no limb jerks (%.2f cm a frame in a frame at most)" % [name, jerk * 100])
+		# The hips rise as a knee draws up (the player: the butt was pressed down).
+		Check.ok(hip_y.max() - hip_y.min() > 0.015, "%s: the hips rise and fall with the knees (%.1f cm)" % [name, (hip_y.max() - hip_y.min()) * 100])
 		Check.ok(3.0 / turns >= Retarget.CRAWL_FASTEST - 0.05, "%s crawls at a natural pace (%.1f s a cycle at %.2f m/s)" % [name, 3.0 / turns, rt.crawl_speed()])
 		if who == Actor.BUNNY:
 			Check.ok(chest_low < SoftPress.BAND, "her chest rests on the ground and gives (%.1f cm into the soft band)" % ((SoftPress.BAND - chest_low) * 100))

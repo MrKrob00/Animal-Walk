@@ -677,11 +677,14 @@ func _crawl_ground() -> void:
 		var S: Vector3 = at.call(u)
 		var M: Vector3 = at.call(m)
 		var E: Vector3 = at.call(e)
+		# Continuous: lifted exactly as far as it would sink, the knee / elbow kept where it is
+		# otherwise (switched on at the floor with the knee pushed 2% of her height up, it popped
+		# 11 cm in a frame each time a leg started to draw up: the player saw the legs jerk).
 		if E.y < floor_y + r_end or M.y < floor_y + r_mid:
 			var l1 := S.distance_to(M)
 			var l2 := M.distance_to(E)
 			var E2 := Vector3(E.x, maxf(E.y, floor_y + r_end), E.z)
-			var pole := Vector3(M.x, maxf(M.y, floor_y + r_mid) + 0.02 * h, M.z)
+			var pole := Vector3(M.x, maxf(M.y, floor_y + r_mid), M.z)
 			var d := clampf(S.distance_to(E2), absf(l1 - l2) + 1e-4, l1 + l2 - 1e-4)
 			var along := (E2 - S).normalized()
 			var side := pole - S

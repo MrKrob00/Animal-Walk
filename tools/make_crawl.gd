@@ -11,7 +11,8 @@ extends SceneTree
 
 const OUT := "res://assets/anim/crawl.res"
 const CYCLE := 1.7          ## seconds per full crawl cycle (both arms once)
-const FRAMES := 32
+const FRAMES := 48         ## keys per cycle, read with cubic interpolation (linear between 32 keys
+                           ## changed the limbs' speed at every key: a jerk the player saw)
 const STRIDE := 0.64        ## metres the body moves per cycle (clip's own size): each forearm pulls 0.32 m
 const HIPS_Y := 0.16        ## hips above the ground, lying
 const ARCH := [0.10, 0.16, 0.18]   ## spine.001-.003 bent up (chest on the forearms), radians
@@ -20,6 +21,10 @@ const HIP_ROLL := 0.22      ## radians the pelvis rolls: the side whose knee dra
                             ## goes onto the other hip (the player asked to study the hips: 0.07, and a
                             ## quarter cycle late, read as stiff)
 const CHEST_KEEP := 0.6     ## share of that roll the ribcage turns back (the shoulders stay level)
+const STRAIGHT := 0.93      ## a limb reaches at most this share of its length (the knee stays bent)
+const HIP_LIFT := 0.03      ## the pelvis rises this much as a knee draws up (the player: the butt was
+                            ## pressed down; crawling, the weight shifts from hip to hip and the
+                            ## drawn-up side lifts)
 
 var sk: Skeleton3D
 var up := Vector3.UP
@@ -86,7 +91,9 @@ func _ik(upper: String, lower: String, end: String, target: Vector3, pole: Vecto
 	var s := _at(upper)
 	var l1 := s.distance_to(_at(lower))
 	var l2 := _at(lower).distance_to(_at(end))
-	var d := clampf(s.distance_to(target), absf(l1 - l2) + 1e-4, l1 + l2 - 1e-4)
+	# Never quite straight: near full reach the knee swings centimetres for a millimetre of
+	# reach, and the stretched leg's knee jerked as it started to draw up.
+	var d := clampf(s.distance_to(target), absf(l1 - l2) + 1e-4, (l1 + l2) * STRAIGHT)
 	var along := (target - s).normalized()
 	var side := pole - s
 	side = (side - along * side.dot(along)).normalized()
@@ -103,9 +110,13 @@ static func _cycle(p: float, stance: float) -> Array:
 	if p < stance:
 		var t := p / stance
 		return [1.0 - t, 0.0]                               # 1 = forward .. 0 = back, on the ground
+	# Back -> forward, lifted. Leaving and joining the stance at the stance's own speed (a Hermite
+	# curve): eased from rest, the limb stopped dead at the stance's end and the knee jerked.
 	var t := (p - stance) / (1.0 - stance)
-	var e := t * t * (3.0 - 2.0 * t)
-	return [e, sin(t * PI)]                                 # back -> forward, lifted
+	var m := -(1.0 - stance) / stance                       # the stance's slope, in the swing's time
+	var e := (t * t * t - 2.0 * t * t + t) * m + (-2.0 * t * t * t + 3.0 * t * t) + (t * t * t - t * t) * m
+	var s := sin(t * PI)
+	return [e, s * s]                                       # lifted smoothly from and onto the ground
 
 
 func _pose(p: float, move: float, breath := 0.0) -> void:
@@ -118,7 +129,8 @@ func _pose(p: float, move: float, breath := 0.0) -> void:
 	_set_rot(hips, Quaternion(fwd, roll) * prone * _rot(hips))
 	var par := sk.get_bone_parent(hips)
 	var to_par := (to_w * (Transform3D.IDENTITY if par < 0 else sk.get_bone_global_pose(par))).affine_inverse()
-	sk.set_bone_pose_position(hips, to_par * Vector3(0.0, HIPS_Y + 0.004 * sin(breath * TAU), 0.0))
+	var hip_up := HIP_LIFT * move * (0.5 + 0.5 * cos(2.0 * p * TAU))   # highest as each knee is drawn up (p = 0, 0.5)
+	sk.set_bone_pose_position(hips, to_par * Vector3(0.0, HIPS_Y + hip_up + 0.004 * sin(breath * TAU), 0.0))
 	# The spine arches up onto the forearms; the chest turns a little toward the reaching arm.
 	var spine := ["DEF-spine.001", "DEF-spine.002", "DEF-spine.003"]
 	for k in spine.size():
@@ -149,7 +161,7 @@ func _pose(p: float, move: float, breath := 0.0) -> void:
 		var out: Vector3 = left * s[1]
 		var base := Vector3(hip.x, 0.0, hip.z)
 		# Drawn up, the thigh lies on its inner side: knee and foot low by the ground.
-		var knee := base + out * lerpf(0.06, 0.32, f) + fwd * lerpf(-0.42, 0.02, f) + up * (lerpf(0.07, 0.045, f) + lift)
+		var knee := base + out * lerpf(0.06, 0.30, f) + fwd * lerpf(-0.42, 0.12, f) + up * (lerpf(0.07, 0.045, f) + lift)   # drawn up toward the elbow
 		var foot := base + out * lerpf(0.07, 0.22, f) + fwd * lerpf(-0.84, -0.36, f) + up * (lerpf(0.09, 0.06, f) + lift)
 		_ik("DEF-thigh." + s[0], "DEF-shin." + s[0], "DEF-foot." + s[0], foot, knee + up * 0.05)
 		# The foot: toes back and down when stretched, on its inner side when drawn up.
@@ -167,9 +179,11 @@ func _record(pose: Callable, length: float, frames: int) -> Animation:
 	for i in sk.get_bone_count():
 		var t := anim.add_track(Animation.TYPE_ROTATION_3D)
 		anim.track_set_path(t, NodePath("Skeleton3D:" + sk.get_bone_name(i)))
+		anim.track_set_interpolation_type(t, Animation.INTERPOLATION_CUBIC)
 		tracks[i] = t
 	var tp := anim.add_track(Animation.TYPE_POSITION_3D)
 	anim.track_set_path(tp, NodePath("Skeleton3D:" + sk.get_bone_name(hips)))
+	anim.track_set_interpolation_type(tp, Animation.INTERPOLATION_CUBIC)
 	for k in frames + 1:
 		var u := float(k % frames) / frames
 		pose.call(u)
