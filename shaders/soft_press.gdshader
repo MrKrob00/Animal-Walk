@@ -21,9 +21,56 @@ uniform vec3 flesh_b = vec3(0.0);
 uniform float flesh_on = 0.0;
 uniform vec4 paw = vec4(0.0);      // a paw: centre (world metres) and radius; w = 0: none
 uniform float paw_band = 0.02;     // metres round the paw where the skin starts to give
+// A skirt over her legs (SkirtRig; the player saw a leg go through it): cloth inside a thigh
+// (a cone from the hip joint to the knee) is pushed out onto it, outward and up from the skirt's
+// middle, so it lies over a thigh stepping into it (over a raised knee, not under it).
+uniform float legs_on = 0.0;
+uniform vec3 leg_a0 = vec3(0.0);   // left hip joint, knee (world metres)
+uniform vec3 leg_b0 = vec3(0.0);
+uniform vec3 leg_a1 = vec3(0.0);   // right
+uniform vec3 leg_b1 = vec3(0.0);
+uniform vec4 leg_r = vec4(0.12, 0.09, 0.09, 0.07);   // the thigh's radius at the hip and at the knee: front-back (xy), to the sides (zw)
+uniform vec3 leg_side = vec3(1.0, 0.0, 0.0);         // her side (world): a thigh is thinner that way
+uniform vec3 leg_mid = vec3(0.0);  // the skirt's middle (the pelvis)
+uniform float leg_gap = 0.006;     // the cloth's own thickness over the skin
+
+vec3 out_of_leg(vec3 w, vec3 a, vec3 b, vec3 nrm) {
+	vec3 ab = b - a;
+	float t = dot(w - a, ab) / max(dot(ab, ab), 1e-9);
+	if (t <= 0.0 || t >= 1.0) {
+		return w;   // the cone only: no ball round the hip joint (the hips would bulge)
+	}
+	vec3 q = a + ab * t;
+	vec3 off = w - q;
+	float d = length(off);
+	vec3 radial = d > 1e-5 ? off / d : vec3(0.0, 1.0, 0.0);
+	// The cloth's outer face lies a little further out than its inner one (the dress has both:
+	// on one surface they flickered through each other).
+	float r_fb = mix(leg_r.x, leg_r.y, t);
+	float r_sd = mix(leg_r.z, leg_r.w, t);
+	vec3 sd = leg_side - normalize(ab) * dot(leg_side, normalize(ab));
+	float sn = length(sd) > 1e-4 ? dot(radial, normalize(sd)) : 0.0;
+	float r = 1.0 / sqrt((1.0 - sn * sn) / (r_fb * r_fb) + (sn * sn) / (r_sd * r_sd));   // round an ellipse
+	r += leg_gap * (1.0 + clamp(dot(nrm, radial), -1.0, 1.0));
+	if (d >= r) {
+		return w;
+	}
+	vec3 ax = normalize(ab);
+	vec3 o = w - leg_mid;
+	o.y = 0.0;
+	o = (length(o) > 1e-5 ? normalize(o) : vec3(0.0)) + vec3(0.0, 1.0, 0.0);
+	o -= ax * dot(o, ax);
+	vec3 n = radial;
+	if (length(o) > 0.2) {
+		o = normalize(o);
+		vec3 lay = normalize(radial * max(dot(radial, o), 0.0) + o);
+		n = normalize(mix(radial, lay, clamp((r - d) / r * 3.0, 0.0, 1.0)));   // deeper, the more it goes round to the outside
+	}
+	return q + n * r;
+}
 
 void vertex() {
-	if (press > 0.001 || paw.w > 0.0 || flesh_on > 0.5) {
+	if (press > 0.001 || paw.w > 0.0 || flesh_on > 0.5 || legs_on > 0.5) {
 		vec3 w = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 		bool moved = false;
 		if (flesh_on > 0.5) {
@@ -32,6 +79,13 @@ void vertex() {
 				w += f;   // first: the flesh moves, then the ground and a paw push it back out
 				moved = true;
 			}
+		}
+		if (legs_on > 0.5) {
+			vec3 w0 = w;
+			vec3 nw = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+			w = out_of_leg(w, leg_a0, leg_b0, nw);
+			w = out_of_leg(w, leg_a1, leg_b1, nw);
+			moved = moved || w != w0;
 		}
 		float s = dot(w - floor_p, floor_n);   // height over the ground plane
 		float d = band - s;

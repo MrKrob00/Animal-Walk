@@ -108,7 +108,7 @@ func set_first_person(on: bool) -> void:
 	first_person = on
 	look = -0.2
 	if on and target != null:
-		yaw = body_yaw(target)   # start from where the character looks
+		yaw = (target.visual_yaw() + PI) if target.has_method("visual_yaw") else body_yaw(target)   # start from where the character looks (as drawn)
 	_body_yaw = INF
 	camera.near = 0.03 if on else 0.05
 	_show_head()
@@ -204,14 +204,33 @@ func _process(delta: float) -> void:
 	_place_camera()
 	if first_person and target.has_method("eye_position"):
 		_show_head()
-		var by := body_yaw(target)
+		var by: float = (target.visual_yaw() + PI) if target.has_method("visual_yaw") else body_yaw(target)
 		if body_leads and _body_yaw != INF:
 			yaw += angle_difference(_body_yaw, by)   # the body turned: the eyes turn with it
 		_body_yaw = by
+		# At the eyes of the body as drawn (eased between physics ticks: the eyes are its bones').
+		# Smoothing where they were in the world (25/s) left them 16 cm behind running and the body
+		# jerked under them (the player); only their bob against the body is softened now.
 		var eye: Vector3 = target.eye_position()
-		_fp_at = _fp_at.lerp(eye, 1.0 - exp(-25.0 * delta)) if _fp_ready else eye   # smooths the head's jitter
+		var root: Vector3 = target.visual_position() if target.has_method("visual_position") else target.global_position
+		_fp_rel = _fp_rel.lerp(eye - root, 1.0 - exp(-30.0 * delta)) if _fp_ready else eye - root
+		_fp_at = root + _fp_rel
+		# The view tips with the head (the player: up and down are the head's, not the world's):
+		# its tilt from the animation (a run's lean, crawling, a stumble), not the turn it makes
+		# after the view itself, softened.
+		var tilt := _head_tilt()
+		# Against how it holds its head standing still (the clip's idle tips it 11 degrees from the
+		# model's rest), learnt while it stands so.
+		var g: Gait = target.gait
+		var still: bool = g.speed < 0.1 and g.crawl < 0.01 and g.sit < 0.01 and not g.airborne() and g.winded() < 0.05
+		if not _tilt_base.has(target):
+			_tilt_base[target] = tilt if still else Quaternion.IDENTITY
+		elif still:
+			_tilt_base[target] = (_tilt_base[target] as Quaternion).slerp(tilt, 1.0 - exp(-2.0 * delta))
+		tilt = (tilt * (_tilt_base[target] as Quaternion).inverse()).normalized()
+		_tilt = _tilt.slerp(tilt, 1.0 - exp(-6.0 * delta)) if _fp_ready else tilt
 		_fp_ready = true
-		camera.global_transform = Transform3D(Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, look), _fp_at)
+		camera.global_transform = Transform3D(Basis(_tilt) * Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, look), _fp_at)
 		if "gait" in target:
 			target.gait.view_dir = -camera.global_basis.z
 	else:
@@ -221,6 +240,30 @@ func _process(delta: float) -> void:
 
 var _fp_ready := false
 var _fp_at := Vector3.ZERO
+var _fp_rel := Vector3.ZERO
+var _tilt := Quaternion.IDENTITY
+var _tilt_base := {}   ## per character: its head's tip standing still (first person's level)
+
+
+## First person: how the steered one's head is tipped (world, about level axes) by its own
+## motion: its turn from rest less the turn round the upright (the view's yaw is the camera's)
+## and less the nod it makes after the view (Gait._view_pitch).
+func _head_tilt() -> Quaternion:
+	if not ("skeleton" in target) or target.skeleton == null or not ("gait" in target):
+		return Quaternion.IDENTITY
+	var sk: Skeleton3D = target.skeleton
+	var hb := Gait.find_bone(sk, target.data.bones.head)
+	if hb < 0:
+		return Quaternion.IDENTITY
+	var now := (sk.global_basis * sk.get_bone_global_pose(hb).basis).orthonormalized()
+	var rest := (sk.global_basis * sk.get_bone_global_rest(hb).basis).orthonormalized()
+	var turn := Quaternion(now * rest.inverse()).normalized()
+	var twist := Quaternion(0.0, turn.y, 0.0, turn.w).normalized()
+	var swing := (turn * twist.inverse()).normalized()   # the tip, the turn round the upright taken out
+	var side: Vector3 = (target.body.global_basis.x as Vector3).normalized()
+	return (Quaternion(side, -float(target.gait._view_pitch) * VIEW_NOD_SIGN) * swing).normalized()
+
+const VIEW_NOD_SIGN := 1.0   ## the head's nod after the view, as a turn about her side (see the test)
 
 
 ## First person: the steered character's head is hidden (so it never blocks the eyes); everyone

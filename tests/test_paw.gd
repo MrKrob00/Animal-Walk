@@ -134,7 +134,8 @@ func _run() -> void:
 	var h := sk.get_bone_global_pose(sk.find_bone("hand.R"))
 	var hy := (sk.global_transform.basis * h.basis.y).normalized()
 	var palm := (sk.global_transform.basis * (h.basis * tg._palm_local(sk.find_bone("hand.R"), "r"))).normalized()
-	Check.ok(tg.paw_lying() > 0.95 and palm.dot(-tg.paw_normal) > 0.85 and hy.dot(tg.paw_tan) > 0.9, "the palm lies on her: turned to her, the fingers along her (%.2f, %.2f)" % [palm.dot(-tg.paw_normal), hy.dot(tg.paw_tan)])
+	Check.ok(tg.paw_lying() > 0.95 and palm.dot(-tg.paw_normal) > 0.85 and absf(hy.dot(tg.paw_normal)) < 0.4, "the palm lies on her: turned to her, the fingers along her (%.2f, %.2f)" % [palm.dot(-tg.paw_normal), absf(hy.dot(tg.paw_normal))])
+
 	Check.ok(tg._curl > 0.05 and absf(tg._curl - Gait.FINGERS_REST) > 0.05, "the fingers curl round her (%.2f rad)" % tg._curl)
 	main.forced_paw = Vector2.INF
 	await _frames(60)
@@ -172,6 +173,30 @@ func _run() -> void:
 	Check.ok(prev < 0.006, "let go, it settles back (%.1f mm off)" % (prev * 1000))
 	Check.ok(swing > moved * 1.2, "swinging on a little on the way (%.1f cm travelled)" % (swing * 100))
 
+	# Reaching across to its left onto her, the wrist is not wrung (the player saw it twist round).
+	var worst_tw := 0.0
+	var worst_sw := 0.0
+	for st in [Vector2(-1.0, 0.0), Vector2(-0.6, 0.0), Vector2(-0.6, -0.3), Vector2(-1.0, 0.4)]:
+		main.forced_paw = st
+		await _frames(40)
+		var w := _wrist(sk)
+		worst_tw = maxf(worst_tw, w.x)
+		worst_sw = maxf(worst_sw, w.y)
+	Check.ok(worst_tw <= 45.0 and worst_sw <= 81.0, "to its left, the wrist turns %.0f degrees on the forearm at most (half of it is the forearm's) and bends %.0f (it turned 90-170)" % [worst_tw, worst_sw])
+	# Pointed just past her chest (it is about at the end of TOFU's reach: the paw slid along its
+	# edge), the paw goes onto it.
+	var side_of := bunny.global_basis.x.normalized()
+	var near_b := "DEF-breast04.L" if _bone(bunny, "DEF-breast04.L").distance_to(_shoulder()) < _bone(bunny, "DEF-breast04.R").distance_to(_shoulder()) else "DEF-breast04.R"
+	var on := 0
+	for aside in [-0.08, 0.08]:
+		main.forced_paw = _stick_to(_bone(bunny, near_b) + side_of * aside + Vector3.UP * 0.04)
+		await _frames(40)
+		if PawReach.touches_soft(tofu.paw_center(), paw_r, bunny.touch_shapes()):
+			on += 1
+	Check.ok(on == 2, "pointed 8 cm beside her chest, the paw goes onto it (%d of 2)" % on)
+	main.forced_paw = Vector2.INF
+	await _frames(40)
+
 	# Crawling under a trunk, the paw still reaches (the player asked).
 	var pass_: Dictionary = main.passages[0]
 	var c: Vector2 = pass_.c
@@ -192,6 +217,17 @@ func _run() -> void:
 	await _frames(20)
 	Check.ok(not main.arm_stick.visible and tofu.gait.paw_target == Vector3.INF, "steering the bunny, the paw stick is gone")
 	Check.finish(self)
+
+
+## The hand's turn on the forearm from rest: (about its own length, the bend), degrees.
+func _wrist(sk: Skeleton3D) -> Vector2:
+	var fa := sk.find_bone("forearm.R")
+	var h := sk.find_bone("hand.R")
+	var rel := sk.get_bone_global_pose(fa).basis.orthonormalized().inverse() * sk.get_bone_global_pose(h).basis.orthonormalized()
+	var rel0 := sk.get_bone_global_rest(fa).basis.orthonormalized().inverse() * sk.get_bone_global_rest(h).basis.orthonormalized()
+	var d := Quaternion(rel0.inverse() * rel)
+	var tw := Quaternion(0, d.y, 0, d.w).normalized()
+	return Vector2(absf(rad_to_deg(wrapf(2.0 * atan2(d.y, d.w), -PI, PI))), rad_to_deg((d * tw.inverse()).get_angle()))
 
 
 ## Her chest's tips relative to her chest bone.

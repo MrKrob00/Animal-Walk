@@ -21,6 +21,14 @@ const BUNNY := {
 		["DEF-head", Vector3(0, 0.11, 0.0), 0.085], ["DEF-head", Vector3(0, 0.06, 0.06), 0.07], ["DEF-neck", Vector3(0, 0.04, 0), 0.05],
 		["DEF-upper_arm.L", Vector3.ZERO, 0.06], ["DEF-upper_arm.R", Vector3.ZERO, 0.06],
 		["DEF-spine.003", Vector3(0, 0.06, -0.03), 0.10]]},
+	# Agnes' sundress gets bones at load (SkirtRig: a ring of chains on springs) and her thighs push
+	# it aside (the player saw a leg go through it); its cloth is pushed out of them in its shader
+	# too. Thighs as cones (metres): round their outside, 12.5 cm high up where they bulge, 9.5
+	# near the knee; the cloth's are oval: front-back at the hip and the knee, then to the sides
+	# (round, pushed out to the sides as far as to the front, the skirt stood out at her hips).
+	"skirt": {"mesh": "Sundress", "pelvis": "DEF-spine", "thighs": ["DEF-thigh.L", "DEF-thigh.R"],
+		"legs": [["DEF-thigh.L", "DEF-shin.L", 0.125, 0.095, 0.095, 0.075], ["DEF-thigh.R", "DEF-shin.R", 0.125, 0.095, 0.095, 0.075]],
+		"cloth": [0.125, 0.095, 0.095, 0.075]},
 	"flesh": ["Object_11", "Object_672", "Sundress", "Blouse"],   # what she wears over the soft parts moves with them   # her butt, thighs and belly are soft and springy (SoftFlesh; the player asked): skin and shorts
 	"eye": Vector3(0, 0.10, 0.125),   # first person: from her head bone (measured on her face)
 	"walk": 1.5, "run": 3.4, "stride": 1.45, "run_stride": 2.5, "radius": 0.3,
@@ -96,6 +104,7 @@ const TOFU := {
 	"jump": "surprise",   # the jump button: a red panda's "surprise!" leap (Gait.JUMP; no turn, the player)
 	"sit": "dog",   # the sit button: sitting like a dog (the player chose it; Gait.SIT)
 	"eye": Vector3(0, 0.09, 0.03),   # first person: from its head bone (back from its long snout, so the collar shows below)
+	"fp_head_share": 0.15,   # first person: all with more than this on the head goes away with it (its snout showed)
 	"walk": 1.6, "run": 3.8, "stride": 1.1, "run_stride": 2.0, "radius": 0.25,
 	"bones": {
 		"pelvis": "hips", "spine": ["spine", "chest"], "neck": "neck", "head": "head",
@@ -140,9 +149,16 @@ var face_target := Vector3.INF   ## when set, faces this point instead of the mo
 var extra_lean := 0.0
 var _press := []             ## soft-skin materials (SoftPress), when the character has them
 var hair: HairSprings   ## her hair's spring chains (HairRig), when she has them
+var skirt: HairSprings  ## her skirt's spring chains (SkirtRig), when she has one
+var _skirt_mesh: MeshInstance3D
 var _flesh_regions := []      ## SoftFlesh regions (her soft butt, thighs and belly), when she has them
 var paw_touch := Vector4.ZERO   ## another's paw pressing this skin: centre (world) and radius (0: none)
-var head_hidden := false     ## first person: the head (and all it carries) shrunk away
+var head_hidden := false:    ## first person: the head (and all it carries) shrunk away
+	set(v):
+		if v != head_hidden and data.has("fp_head_share"):
+			_fp_meshes(v)
+		head_hidden = v
+var _fp_swap := {}           ## first person: MeshInstance3D -> [its own mesh, the one with the whole head on the head]
 var _model: Node3D
 var _fit_scale := 1.0
 
@@ -198,6 +214,9 @@ func _ready() -> void:
 			gait.set_flesh(_flesh_regions)
 		if data.has("hair"):
 			hair = HairRig.build(self, skeleton, data.hair)
+		if data.has("skirt"):
+			skirt = SkirtRig.build(self, skeleton, data.skirt)
+			_skirt_mesh = find_child(data.skirt.mesh, true, false)
 
 
 ## Her clothes from the wardrobe: Agnes' fitted ones get her skin (the scene keeps them unskinned
@@ -269,6 +288,68 @@ func _eye_now() -> Vector3:
 	var turn := now * rest.inverse()
 	var off: Vector3 = data.get("eye", Vector3(0, 0.1, 0.1))
 	return skeleton.global_transform * skeleton.get_bone_global_pose(hb).origin + turn * (body.global_basis.orthonormalized() * off)
+
+
+## The skirt's cloth is pushed out of her thighs in its shader (SoftPress' material): where they
+## are now, as the leg capsules of the skirt's springs.
+func _skirt_legs() -> void:
+	var mat := _skirt_mesh.get_surface_override_material(0) as ShaderMaterial
+	if mat == null or skirt.capsules.size() < 2:
+		return
+	var g := skeleton.global_transform
+	var fix := Vector3.ZERO
+	mat.set_shader_parameter("legs_on", 1.0)
+	for i in 2:
+		var c: Array = skirt.capsules[i]
+		mat.set_shader_parameter("leg_a%d" % i, g * skeleton.get_bone_global_pose(c[0]).origin + fix)
+		mat.set_shader_parameter("leg_b%d" % i, g * skeleton.get_bone_global_pose(c[1]).origin + fix)
+	var cl: Array = data.skirt.cloth   # front-back at the hip and the knee, to the sides
+	mat.set_shader_parameter("leg_r", Vector4(cl[0], cl[1], cl[2], cl[3]))
+	mat.set_shader_parameter("leg_side", (skeleton.global_basis * skeleton.get_bone_global_pose(skirt.out_from).basis.x).normalized())
+	mat.set_shader_parameter("leg_mid", g * skeleton.get_bone_global_pose(skirt.out_from).origin + fix)
+
+
+## First person: what of the face hangs partly on the neck (TOFU's snout blends from neck to head
+## over its whole length) would stay in front of the eyes when the head is put away; the player
+## saw its nose. Its meshes are swapped for copies where every vertex with more than
+## data.fp_head_share of its weight on the head hangs wholly on the head (made once), and back.
+func _fp_meshes(on: bool) -> void:
+	if skeleton == null:
+		return
+	if _fp_swap.is_empty():
+		var head := Gait.find_bone(skeleton, data.bones.head)
+		for mi in find_children("*", "MeshInstance3D", true, false):
+			var m: MeshInstance3D = mi
+			if m.skin == null or m.mesh == null:
+				continue
+			var hb := HairRig._bind_of(m.skin, skeleton, head)
+			if hb < 0:
+				continue
+			var mesh := ArrayMesh.new()
+			for sf in m.mesh.get_surface_count():
+				var arr: Array = m.mesh.surface_get_arrays(sf)
+				var bb: PackedInt32Array = arr[Mesh.ARRAY_BONES]
+				var ww: PackedFloat32Array = arr[Mesh.ARRAY_WEIGHTS]
+				var n: int = (arr[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+				var per := bb.size() / maxi(n, 1)
+				for v in n:
+					var wh := 0.0
+					for k in per:
+						if bb[v * per + k] == hb:
+							wh += ww[v * per + k]
+					if wh > float(data.fp_head_share):
+						for k in per:
+							bb[v * per + k] = hb if k == 0 else 0
+							ww[v * per + k] = 1.0 if k == 0 else 0.0
+				arr[Mesh.ARRAY_BONES] = bb
+				arr[Mesh.ARRAY_WEIGHTS] = ww
+				var flags: int = m.mesh.surface_get_format(sf) & (Mesh.ARRAY_FLAG_USE_8_BONE_WEIGHTS | (Mesh.ARRAY_FORMAT_CUSTOM_MASK << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT))
+				mesh.add_surface_from_arrays(m.mesh.surface_get_primitive_type(sf), arr, [], {}, flags)
+				mesh.surface_set_material(sf, m.mesh.surface_get_material(sf))
+			_fp_swap[m] = [m.mesh, mesh]
+	for m in _fp_swap:
+		if is_instance_valid(m):
+			(m as MeshInstance3D).mesh = _fp_swap[m][1 if on else 0]
 
 
 ## Builds the collar from data.collar on its bone; returns the ring the leash clips to.
@@ -407,6 +488,8 @@ func place(p: Vector3, delta: float) -> void:
 	var moved := Vector2(p.x - position.x, p.z - position.z)
 	speed = moved.length() / maxf(delta, 0.0001)
 	_tick_from = position
+	_yaw_from = rotation.y
+	_tick_n = Engine.get_physics_frames()
 	position = p
 	var look := Vector2.ZERO
 	if face_target != Vector3.INF:
@@ -418,25 +501,53 @@ func place(p: Vector3, delta: float) -> void:
 
 
 var _tick_from := Vector3.INF   ## where the last physics tick moved it from
+var _yaw_from := 0.0            ## ... and the way it faced
+var _tick_n := -10              ## that tick
+var vis_offset := Vector3.ZERO  ## the body as drawn, from where it is (eased between ticks; world)
+var vis_yaw := 0.0              ## ... and its turn
 
 
 func _process(delta: float) -> void:
-	# The springs (chest, soft flesh) feel the body's motion smoothly between physics ticks: with
-	# more frames than ticks (a 90-120 Hz screen) it moves in steps, which hit them like blows
-	# (the flesh hung at its limit). They get where it would be, eased between the ticks.
-	if _tick_from != Vector3.INF:
+	# The body is drawn eased between physics ticks (where it was a tick ago to where it is, by
+	# how far into the next tick this frame is): moved only on ticks, with more frames than ticks
+	# (a 90-144 Hz screen, or a frame with no tick or two) it went in steps, which the camera at
+	# the eyes showed as jerks running (the player), and which hit the springs like blows. All the
+	# body's bones then move smoothly, so the springs (chest, flesh, hair, skirt) feel that.
+	vis_offset = Vector3.ZERO
+	vis_yaw = 0.0
+	if _tick_from != Vector3.INF and Engine.get_physics_frames() - _tick_n <= 1 and _tick_from.distance_to(position) < 1.0:
 		var frac := Engine.get_physics_interpolation_fraction()
-		gait.motion_fix = (_tick_from - position) * (1.0 - frac)
+		vis_offset = (_tick_from - position) * (1.0 - frac)
+		var turn := angle_difference(rotation.y, _yaw_from)
+		vis_yaw = turn * (1.0 - frac) if absf(turn) < 0.5 else 0.0   # more in a tick: set, not turned
+	gait.motion_fix = Vector3.ZERO   # the skeleton itself is eased now
 	if skeleton != null:
 		animate(delta, speed)
+
+
+## Where the body is drawn now (eased between physics ticks).
+func visual_position() -> Vector3:
+	return position + vis_offset
+
+
+## The way the body is drawn facing now (eased between physics ticks).
+func visual_yaw() -> float:
+	return rotation.y + vis_yaw
+
+
+## The body node: its bob (Gait.body_offset), drawn eased between physics ticks (vis_offset).
+func _place_body() -> void:
+	body.position = gait.body_offset(float(data.height)) + global_basis.orthonormalized().inverse() * vis_offset
+	body.rotation.y = gait.jump_spin() + vis_yaw
 
 
 ## Poses the body for this frame at `spd` m/s (also used by the view tools).
 func animate(delta: float, spd: float) -> void:
 	gait.lean = lerpf(gait.lean, extra_lean, 1.0 - exp(-6.0 * delta))
 	gait._on_island = world != null
+	_place_body()   # where it is drawn this frame, before the bones are posed in the world
 	var landed := gait.update(delta, spd)
-	body.position = gait.body_offset(float(data.height))
+	_place_body()
 	if skeleton != null:
 		var hb := Gait.find_bone(skeleton, data.bones.head)
 		if hb >= 0:
@@ -456,7 +567,13 @@ func animate(delta: float, spd: float) -> void:
 		if head_hidden:
 			hair.reset()   # first person: the head (and its hair) is put away
 		else:
-			hair.step(delta, gait.motion_fix, body.global_position + global_basis * (gait.body_offset(float(data.height)) - body.position))   # the body as it will be this frame (bob, crouch, jump)
+			hair.step(delta, Vector3.ZERO, body.global_position)
+	if skirt != null:
+		if _skirt_mesh != null and _skirt_mesh.is_visible_in_tree():
+			skirt.step(delta, Vector3.ZERO, body.global_position)
+			_skirt_legs()
+		else:
+			skirt.reset()   # not worn: laid at rest again when put on
 	if not _press.is_empty():
 		var k := smoothstep(0.0, 1.0, gait.crawl)
 		for m in _press:
@@ -470,7 +587,7 @@ func animate(delta: float, spd: float) -> void:
 				m.set_shader_parameter("flesh_r", gait.flesh_offset[1])
 				m.set_shader_parameter("flesh_b", gait.flesh_offset[2])
 	body.rotation.x = lerpf(body.rotation.x, gait.body_lean(), 1.0 - exp(-8.0 * delta))
-	body.rotation.y = gait.jump_spin()   # a turn in the air, for a jump that has one
+	body.rotation.y = gait.jump_spin() + vis_yaw   # a turn in the air, for a jump that has one
 	if landed != 0:
 		if landed == 2:   # landing a jump: both feet, and a bigger puff
 			footstep.emit(gait.foot_position(true), float(data.height) / 1.6 * 1.4)

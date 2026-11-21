@@ -64,3 +64,37 @@ static func out_of_paw(p: Vector3, c: Vector3, r: float, band := PAW_BAND) -> Ve
 		return p
 	var d2 := out_r - band * (1.0 - exp(-(out_r - d) / band))
 	return c + (off / d if d > 1e-5 else Vector3.UP) * d2
+
+
+## Where the shader puts a skirt's point `p` round a thigh from `a` (hip joint) to `b` (knee):
+## out of the oval cone `r` (front-back at a and b, to the sides at a and b; `side`: her side),
+## outward and up from the skirt's middle `mid` the deeper it was (over a raised knee, not under
+## it). `facing`: the cloth's normal along the push (its outer face lies `gap` further out).
+## Kept in step with the shader's out_of_leg.
+static func out_of_leg(p: Vector3, a: Vector3, b: Vector3, r: Vector4, side: Vector3, mid: Vector3, gap := 0.006, facing := 0.0) -> Vector3:
+	var ab := b - a
+	var t := (p - a).dot(ab) / maxf(ab.length_squared(), 1e-9)
+	if t <= 0.0 or t >= 1.0:
+		return p
+	var q := a + ab * t
+	var off := p - q
+	var d := off.length()
+	var radial := off / d if d > 1e-5 else Vector3.UP
+	var ax := ab.normalized()
+	var sd := side - ax * side.dot(ax)
+	var sn := radial.dot(sd.normalized()) if sd.length() > 1e-4 else 0.0
+	var r_fb := lerpf(r.x, r.y, t)
+	var r_sd := lerpf(r.z, r.w, t)
+	var rr := 1.0 / sqrt((1.0 - sn * sn) / (r_fb * r_fb) + sn * sn / (r_sd * r_sd)) + gap * (1.0 + clampf(facing, -1.0, 1.0))
+	if d >= rr:
+		return p
+	var o := p - mid
+	o.y = 0.0
+	o = (o.normalized() if o.length() > 1e-5 else Vector3.ZERO) + Vector3.UP
+	o -= ax * o.dot(ax)
+	var n := radial
+	if o.length() > 0.2:
+		o = o.normalized()
+		var lay := (radial * maxf(radial.dot(o), 0.0) + o).normalized()
+		n = radial.lerp(lay, clampf((rr - d) / rr * 3.0, 0.0, 1.0)).normalized()
+	return q + n * rr

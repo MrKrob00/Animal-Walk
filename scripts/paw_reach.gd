@@ -20,6 +20,7 @@ const MIN_REACH := 0.2  ## a paw stopped closer than this to the shoulder would 
                         ## unnaturally: the arm goes lower instead (or stays down)
 const LOWER := 0.2      ## radians per try, lowering the arm
 const FINGER := 0.07    ## metres from the palm's middle to the finger tips
+const FINGERS_UP := 0.7 ## how much the fingers point up a steep surface (besides the reach's way)
 const CURL_MAX := 1.2   ## radians the fingers curl at most round a surface (and bend back -0.25)
 
 
@@ -42,11 +43,40 @@ static func reach_free(shoulder: Vector3, dir: Vector3, arm: float, paw_r: float
 	for i in 8:
 		var r := reach(shoulder, d, arm, paw_r, paw_off, shapes, obs)
 		if (r.paw as Vector3).distance_to(shoulder) >= MIN_REACH:
+			if not r.hit or (not r.soft and _nearest(r.paw, paw_r, shapes, obs).kind == "shape"):
+				return _onto_chest(r, shoulder, arm, paw_r, paw_off, shapes, obs)   # in the air, or on her body beside it
 			return r
 		d = d.rotated(axis, -LOWER)   # turns the line downward (about dir x up, + would raise it)
 		if d.y < -0.95:
 			break
 	return {}
+
+
+## A paw in the air (or on her body) next to her chest goes onto it (the player: it slid along its edge, now and
+## then touching): her chest sits about at the end of TOFU's reach, so a line pointed at it
+## mostly passed by or fell short. Within CHEST_PULL of a spot on it that the arm can reach, the
+## paw reaches for that spot instead. Chest: soft shapes of no flesh region ([.., soft, -1]).
+const CHEST_PULL := 0.12
+
+static func _onto_chest(r: Dictionary, shoulder: Vector3, arm: float, paw_r: float, paw_off: float, shapes: Array, obs: Obstacles) -> Dictionary:
+	var p: Vector3 = r.paw
+	var best := CHEST_PULL
+	var spot := Vector3.INF
+	for s in shapes:
+		if s.size() < 5 or not s[3] or int(s[4]) >= 0:
+			continue
+		var ab: Vector3 = s[1] - s[0]
+		var q: Vector3 = s[0] + ab * clampf((p - s[0]).dot(ab) / maxf(ab.length_squared(), 1e-9), 0.0, 1.0)
+		var n := (p - q).normalized() if p.distance_to(q) > 1e-5 else (shoulder - q).normalized()
+		var on: Vector3 = q + n * (float(s[2]) + paw_r - SOFT_GIVE * 0.5)
+		var gap := p.distance_to(on)
+		if gap < best and on.distance_to(shoulder) <= arm + paw_off:
+			best = gap
+			spot = on
+	if spot == Vector3.INF:
+		return r
+	var there := reach(shoulder, (spot - shoulder).normalized(), arm, paw_r, paw_off, shapes, obs)
+	return there if there.soft else r
 
 
 ## Where the paw goes: {"paw": centre, "wrist": the wrist's goal, "hit": met something,
@@ -82,8 +112,13 @@ static func reach(shoulder: Vector3, dir: Vector3, arm: float, paw_r: float, paw
 		# and how far it falls away under the finger tips (the fingers curl after it).
 		var near := _nearest(at, paw_r, shapes, obs)
 		var n: Vector3 = near.normal
+		# The fingers along the surface: the way the arm reaches, and up it (a paw pressed on a wall
+		# or a body in front points its fingers up, as a hand does; reaching straight at it, the
+		# reach's own way along it is short and swings about, and wrung the wrist).
 		var t := dir - n * dir.dot(n)
-		t = t.normalized() if t.length() > 1e-3 else n.cross(Vector3.UP).normalized()
+		var up := Vector3.UP - n * n.y
+		t = t + up * FINGERS_UP
+		t = t.normalized() if t.length() > 1e-3 else n.cross(Vector3.RIGHT).normalized()
 		var tip := at + t * FINGER
 		var gap: float = (_clearance(tip, paw_r, near) as float)
 		out.normal = n

@@ -1156,6 +1156,7 @@ var _lie_n := Vector3.UP
 var _lie_t := Vector3.FORWARD
 var _curl := FINGERS_REST
 var _paw_point := Vector3.ZERO
+var _paw_t := Vector3.ZERO       ## lying on a surface: the fingers' way along it (skeleton space)
 var _paw_x := Vector3.ZERO
 var _paw_v := Vector3.ZERO
 var _paw_ready := false
@@ -1192,7 +1193,9 @@ func _paw_reach(delta: float) -> void:
 	var free_dir := (goal - g_ua.origin).normalized()
 	var lie_n := (sk_b.inverse() * _lie_n).normalized()
 	var lie_t := (sk_b.inverse() * _lie_t).normalized()
-	var dir := free_dir.slerp(lie_t, _lie).normalized()
+	if _paw_t == Vector3.ZERO or _lie < 0.01:
+		_paw_t = lie_t
+	var dir := free_dir.slerp(_paw_t, _lie).normalized()
 	var wrist_goal := goal - dir * paw_palm * unit + lie_n * WRIST_LIFT * unit * _lie
 	if not _paw_ready:
 		_paw_x = wr
@@ -1214,9 +1217,56 @@ func _paw_reach(delta: float) -> void:
 	var palm_now := (g_h * _palm_local(hand, "r")).normalized()
 	var palm_want := palm_now.slerp(-lie_n, _lie)
 	var from_b := _hand_frame(y_now, palm_now)
+	if _lie > 0.01:
+		# The fingers' way along the surface: of the ways round it, the one the wrist reaches with
+		# the least bend and turn (a hand pressed on something points its fingers where it is
+		# comfortable; a set way wrung TOFU's wrist reaching to its left), a little toward the
+		# reach's own way. Followed smoothly (it is also the wrist's goal next frame).
+		var best := lie_t
+		var cost := INF
+		var f_rot := skeleton.get_bone_global_pose(fa).basis.orthonormalized().get_rotation_quaternion()
+		var rest_rel := skeleton.get_bone_rest(hand).basis.orthonormalized().get_rotation_quaternion()
+		for ki in 16:
+			var t := lie_t.rotated(lie_n, ki * TAU / 16.0)
+			var qk := Quaternion(_hand_frame(t, -lie_n) * from_b.inverse()).normalized()
+			var d := (rest_rel.inverse() * f_rot.inverse() * qk * g_h.get_rotation_quaternion()).normalized()
+			var tw := wrapf(2.0 * atan2(d.y, d.w), -PI, PI)
+			var sw := (d * Quaternion(0.0, d.y, 0.0, d.w).normalized().inverse()).get_angle()
+			var c := tw * tw * 0.5 + sw * sw + 0.3 * pow(t.angle_to(lie_t), 2.0)
+			if c < cost:
+				cost = c
+				best = t
+		_paw_t = _paw_t.slerp(best, 1.0 - exp(-8.0 * delta)).normalized()
+		dir = free_dir.slerp(_paw_t, _lie).normalized()
 	var to_b := _hand_frame(dir, palm_want)
 	var q := Quaternion(to_b * from_b.inverse()).normalized()
-	_set_global_rot(hand, Quaternion.IDENTITY.slerp(q, w) * g_h.get_rotation_quaternion())
+	_limit_wrist(fa, hand, Quaternion.IDENTITY.slerp(q, w) * g_h.get_rotation_quaternion())
+
+
+## Puts the hand at global rotation `want`, within what a wrist can do (the player saw TOFU's
+## paw wrung round reaching to its left): the hand turns about its own length (pronation and
+## supination) at most WRIST_TWIST from rest, half of it taken by the forearm turning about its
+## own length (as the radius rolls over the ulna), and bends at most WRIST_BEND.
+const WRIST_TWIST := deg_to_rad(80.0)
+const WRIST_BEND := deg_to_rad(80.0)
+
+func _limit_wrist(fa: int, hand: int, want: Quaternion) -> void:
+	var rest_rel := skeleton.get_bone_rest(hand).basis.orthonormalized().get_rotation_quaternion()
+	var f := skeleton.get_bone_global_pose(fa).basis.orthonormalized().get_rotation_quaternion()
+	var d := (rest_rel.inverse() * f.inverse() * want).normalized()   # the hand's turn from its rest on the forearm, in its own frame
+	var tw := Quaternion(0.0, d.y, 0.0, d.w).normalized() if absf(d.y) + absf(d.w) > 1e-6 else Quaternion.IDENTITY
+	var sw := (d * tw.inverse()).normalized()
+	var twist := clampf(wrapf(2.0 * atan2(d.y, d.w), -PI, PI), -WRIST_TWIST, WRIST_TWIST)
+	var sw_a := sw.get_angle()
+	if sw_a > WRIST_BEND:
+		sw = Quaternion.IDENTITY.slerp(sw, WRIST_BEND / sw_a)
+	# Half the twist rolls the forearm about its own length (its wrist end stays put).
+	skeleton.set_bone_pose_rotation(fa, (skeleton.get_bone_pose_rotation(fa) * Quaternion(Vector3.UP, twist * 0.5)).normalized())
+	var f2 := skeleton.get_bone_global_pose(fa).basis.orthonormalized().get_rotation_quaternion()
+	# The hand's own turn on the rolled forearm: the bend and the other half of the twist.
+	var d2 := sw * Quaternion(Vector3.UP, twist)
+	var hand_global := f * rest_rel * d2   # where it should end up (as on the unrolled forearm)
+	skeleton.set_bone_pose_rotation(hand, (f2.inverse() * hand_global).normalized())
 
 
 ## An orthonormal basis with `y` along `along` and z toward `toward` (made square to it).

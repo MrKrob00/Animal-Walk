@@ -57,7 +57,7 @@ func _run() -> void:
 		await process_frame
 	Check.ok(top > 0.01, "walking, running and jumping, the strands swing (%.1f cm at most)" % (top * 100))
 	Check.ok(top < 0.10, "but stay near the hairdo (%.1f cm at most)" % (top * 100))
-	Check.ok(flip <= HairSprings.MAX_ANGLE + deg_to_rad(8.0), "never flip over (%.0f degrees at most: 40, a few more where a sphere pushes it out)" % rad_to_deg(flip))
+	Check.ok(flip <= deg_to_rad(40.0) + deg_to_rad(8.0), "never flip over (%.0f degrees at most: 40, a few more where a sphere pushes it out)" % rad_to_deg(flip))
 	Check.ok(inside < 0.002, "never go into her head or face (%.1f mm at most)" % (inside * 1000))
 	for i in 150:
 		a.animate(1.0 / 60.0, 0.0)

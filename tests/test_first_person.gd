@@ -75,6 +75,52 @@ func _run() -> void:
 		await physics_frame
 	await process_frame
 	Check.ok(absf(angle_difference(rig.yaw, CameraRig.body_yaw(tofu))) < 0.1, "stopped, the view and the body still agree")
+	# Nothing of TOFU's snout stays in front of the eyes (the player saw its nose): in first person
+	# all its skin with more than a little weight on the head goes away with the head.
+	var share := float(Actor.TOFU.fp_head_share)
+	var left_on := 0
+	for mi in tofu.find_children("*", "MeshInstance3D", true, false):
+		var m: MeshInstance3D = mi
+		if m.skin == null:
+			continue
+		var hbind := HairRig._bind_of(m.skin, tofu.skeleton, hb)
+		if hbind < 0:
+			continue
+		var arr := m.mesh.surface_get_arrays(0)
+		var bb: PackedInt32Array = arr[Mesh.ARRAY_BONES]
+		var ww: PackedFloat32Array = arr[Mesh.ARRAY_WEIGHTS]
+		var per := bb.size() / (arr[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+		for v in bb.size() / per:
+			var wh := 0.0
+			for k in per:
+				if bb[v * per + k] == hbind:
+					wh += ww[v * per + k]
+			if wh > share and wh < 0.999:
+				left_on += 1
+	Check.ok(left_on == 0, "first person, TOFU's snout goes away with its head (%d vertices left half on it)" % left_on)
+	# Up and down are the head's (the player): standing still the view is level at look 0, a run's
+	# lean tips it down, and it moves smoothly (it jerked: the body moved on physics ticks only).
+	rig.look = 0.0
+	for i in 60:
+		await process_frame
+	var level := rad_to_deg(asin((-rig.camera.global_basis.z).y))
+	Check.ok(absf(level) < 3.0, "standing, the view is level at look 0 (%.1f degrees)" % level)
+	main.forced_run = true
+	var cams := []
+	for i in 150:
+		main.forced_input = Vector2(0, -1)
+		await process_frame
+		if i > 50:
+			cams.append(rig.camera.global_position)
+	var run_tip := rad_to_deg(asin((-rig.camera.global_basis.z).y))
+	Check.ok(run_tip < -3.0 and run_tip > -25.0, "running, the head's lean tips the view down (%.0f degrees)" % run_tip)
+	var jerk := 0.0
+	for k in range(1, cams.size() - 1):
+		jerk += ((cams[k + 1] - cams[k] * 2.0 + cams[k - 1]) as Vector3).length()
+	jerk = jerk / (cams.size() - 2) * 1000.0
+	Check.ok(jerk < 2.0, "running, the eyes move smoothly with more frames than ticks (%.1f mm a frame of change in step; it was 5)" % jerk)
+	main.forced_run = false
+	main.forced_input = Vector2.ZERO
 	Check.finish(self)
 
 
