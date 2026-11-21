@@ -26,7 +26,13 @@ const LOOK_HEIGHT := 0.9         ## metres above the character's feet the camera
 const LOOK_HEIGHT_CRAWL := 0.35  ## ... while it crawls
 const CLEARANCE := 0.35          ## the camera stays this far above the ground
 
-var target: Node3D       ## the character the player steers
+var target: Node3D:      ## the character the player steers
+	set(v):
+		if v != target and first_person and target != null and is_instance_valid(target) and _fp_ready:
+			_keep(target)   # switched away: it keeps looking where the camera looked
+		target = v
+var _kept := {}          ## first person, switched away: actor -> {"yaw", "look", "dir" (world), "at"}
+const KEEP_MOVED := 0.25 ## metres: having moved this far (walking, led), it lets its look go
 var second: Node3D       ## the other one (the camera leans a little toward it)
 var camera: Camera3D
 var button: Control      ## the action button (its touches are not for the camera)
@@ -109,6 +115,11 @@ func set_first_person(on: bool) -> void:
 	look = -0.2
 	if on and target != null:
 		yaw = (target.visual_yaw() + PI) if target.has_method("visual_yaw") else body_yaw(target)   # start from where the character looks (as drawn)
+		if _kept.has(target):
+			# Back to one that kept its look (it has not walked since): the view is where it was.
+			yaw = float(_kept[target].yaw)
+			look = float(_kept[target].look)
+			_kept.erase(target)
 	_body_yaw = INF
 	camera.near = 0.03 if on else 0.05
 	_show_head()
@@ -199,6 +210,7 @@ func release() -> void:
 func _process(delta: float) -> void:
 	if target == null:
 		return
+	_hold_kept()
 	position = position.lerp(_focus(), 1.0 - exp(-6.0 * delta))
 	distance = lerpf(distance, _zoom, 1.0 - exp(-10.0 * delta))
 	_place_camera()
@@ -238,6 +250,27 @@ func _process(delta: float) -> void:
 		_body_yaw = INF
 
 
+## First person, switching to the other one (the player asked): the one left keeps its head
+## turned and tipped as the camera had it (Gait.view_dir), and the view comes back there when
+## switched back, until it starts walking (or is led off).
+func _keep(who: Node3D) -> void:
+	_kept[who] = {"yaw": yaw, "look": look, "dir": -camera.global_basis.z, "at": who.global_position}
+
+
+func _hold_kept() -> void:
+	for who in _kept.keys():
+		if not is_instance_valid(who) or who == target:
+			continue
+		var k: Dictionary = _kept[who]
+		var moved: bool = (who.global_position as Vector3).distance_to(k.at) > KEEP_MOVED or ("speed" in who and float(who.speed) > 0.3)
+		if moved:
+			_kept.erase(who)
+			if "gait" in who:
+				who.gait.view_dir = Vector3.INF
+		elif "gait" in who:
+			who.gait.view_dir = k.dir
+
+
 var _fp_ready := false
 var _fp_at := Vector3.ZERO
 var _fp_rel := Vector3.ZERO
@@ -272,7 +305,7 @@ func _show_head() -> void:
 	var who: Node3D = target if first_person else null
 	if _hidden_on != null and is_instance_valid(_hidden_on) and _hidden_on != who:
 		_hidden_on.set("head_hidden", false)
-		if "gait" in _hidden_on:
+		if "gait" in _hidden_on and not _kept.has(_hidden_on):
 			_hidden_on.gait.view_dir = Vector3.INF
 	if who != null and "head_hidden" in who:
 		who.set("head_hidden", true)

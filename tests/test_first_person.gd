@@ -121,6 +121,38 @@ func _run() -> void:
 	Check.ok(jerk < 2.0, "running, the eyes move smoothly with more frames than ticks (%.1f mm a frame of change in step; it was 5)" % jerk)
 	main.forced_run = false
 	main.forced_input = Vector2.ZERO
+	# Switched away in first person, TOFU keeps its head turned and tipped as the camera had it,
+	# and the view comes back there; once it walks, it lets the look go (the player asked).
+	main.bunny.position = tofu.position + tofu.global_basis.x * 1.0   # close by: the leash slack, nobody led
+	for i in 60:
+		await physics_frame
+	await process_frame
+	rig.yaw += 0.6
+	rig.look = -0.7
+	for i in 40:
+		await process_frame
+	var seen := -rig.camera.global_basis.z
+	main.switch_character()
+	for i in 40:
+		await process_frame
+	var hy := (tofu.skeleton.global_basis * tofu.skeleton.get_bone_global_pose(hb).basis).orthonormalized()
+	var face := (hy * (tofu.skeleton.get_bone_global_rest(hb).basis.orthonormalized().inverse() * (tofu.skeleton.global_basis.orthonormalized().inverse() * tofu.global_basis.z))).normalized()
+	var body_f := tofu.global_basis.z.normalized()
+	Check.ok(tofu.gait.view_dir != Vector3.INF and (tofu.gait.view_dir as Vector3).angle_to(seen) < 0.05, "switched away, TOFU keeps looking where the camera looked")
+	Check.ok(rad_to_deg(face.angle_to(body_f)) > 15.0, "its head stays turned (%.0f degrees off its body)" % rad_to_deg(face.angle_to(body_f)))
+	main.switch_character()
+	await process_frame
+	Check.ok(absf(rig.look + 0.7) < 0.01, "switched back, the view is where it was (look %.2f)" % rig.look)
+	main.switch_character()
+	main.partner_input = Vector3(1, 0, 0)   # TOFU walks off by itself
+	for i in 90:
+		await physics_frame
+	await process_frame
+	main.partner_input = Vector3.ZERO
+	Check.ok(tofu.gait.view_dir == Vector3.INF and not rig._kept.has(tofu), "once it walks, it lets the look go")
+	main.switch_character()
+	await process_frame
+	Check.ok(absf(rig.look + 0.2) < 0.01, "and switched back after that, the view starts afresh")
 	Check.finish(self)
 
 
