@@ -159,6 +159,8 @@ func _physics_process(delta: float) -> void:
 	_time += delta
 	var v := read_input()
 	var running := forced_run or Input.is_action_pressed("run") or v.length() > 0.92
+	if camera_rig != null:
+		camera_rig.set_body_leads(v.length() > 0.05 or (_busy > 0.0 and not rules.steers_tofu()))
 	if _busy > 0.0:
 		_busy -= delta
 		if _busy <= 0.0:
@@ -179,6 +181,7 @@ func _physics_process(delta: float) -> void:
 		if _busy > 0.0:
 			bunny.steer(Vector3.ZERO, delta, 30.0)
 		else:
+			bunny.face_target = Vector3.INF
 			_drive(bunny, v, running, delta)
 		# TOFU stays where the leash lets it be and watches the bunny.
 		tofu.steer(Vector3.ZERO, delta)
@@ -192,9 +195,10 @@ func _physics_process(delta: float) -> void:
 	tofu.aim_collar(leash.pts[6] if leash.pts.size() > 6 else bunny.position, delta)
 	# First person: the one you steer turns its body to where you look (standing; walking already
 	# goes where you look), so the view never looks out through the back of its head.
+	# Walking (or busy) the body turns by itself and the view goes with it (`CameraRig.body_leads`).
 	if camera_rig.first_person:
 		var me: Actor = tofu if rules.steers_tofu() else bunny
-		if me.speed < 0.3:
+		if me.speed < 0.3 and not camera_rig.body_leads:
 			var ax: Array = camera_rig.ground_axes()
 			me.face_target = me.position + (ax[1] as Vector3) * 3.0
 	stake.set_hint(rules.can_pick(bunny.position), _time)

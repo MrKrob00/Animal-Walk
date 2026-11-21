@@ -47,6 +47,34 @@ func _run() -> void:
 	await process_frame
 	Check.ok(not rig.first_person and tofu.skeleton.get_bone_pose_scale(hb).x > 0.99, "back in third person the head shows again")
 	Check.ok(rig.camera.global_position.distance_to(tofu.eye_position()) > 1.5, "and the camera is behind again")
+	# The view is the body's own: it starts where the character faces, turns with the body when
+	# it walks off another way, and walking on never turns the body round (it did: it kept
+	# facing a point 3 m ahead and spun round once it walked past it, the view staying put).
+	tofu.rotation.y = 1.0
+	main.toggle_view()
+	Check.ok(absf(angle_difference(rig.yaw, CameraRig.body_yaw(tofu))) < 0.01, "first person starts looking where the character faces")
+	main.forced_input = Vector2(0, 0.7)   # the stick pulled back: turn round and walk off
+	for i in 90:
+		await physics_frame
+	await process_frame
+	var turned := absf(angle_difference(CameraRig.body_yaw(tofu), 1.0 + PI))
+	var with_body := absf(angle_difference(rig.yaw, CameraRig.body_yaw(tofu)))
+	Check.ok(turned > 2.9, "stick back: the body turns round (%.0f degrees)" % rad_to_deg(turned))
+	Check.ok(with_body < 0.1, "and the view turns with it (%.0f degrees off the body)" % rad_to_deg(with_body))
+	main.forced_input = Vector2(0, -0.7)   # stick forward for a while: no turning round
+	for i in 60:
+		await physics_frame
+	var y0 := CameraRig.body_yaw(tofu)
+	var worst := 0.0
+	for i in 240:
+		await physics_frame
+		worst = maxf(worst, absf(angle_difference(CameraRig.body_yaw(tofu), y0)))
+	Check.ok(worst < 0.15, "walking straight on, the body keeps its way (turned at most %.0f degrees)" % rad_to_deg(worst))
+	main.forced_input = Vector2.ZERO
+	for i in 60:
+		await physics_frame
+	await process_frame
+	Check.ok(absf(angle_difference(rig.yaw, CameraRig.body_yaw(tofu))) < 0.1, "stopped, the view and the body still agree")
 	Check.finish(self)
 
 
