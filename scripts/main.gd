@@ -1,7 +1,10 @@
 extends Node3D
-## First scene: a small island with a sand beach. The bunny holds TOFU's leash and TOFU drags her
-## around (the player steers TOFU). The action button hammers a stake in: the leash is tied
-## to it and the player steers the bunny. Next to the stake the button pulls it out again.
+## First scene: a small island with a sand beach. The bunny holds TOFU's leash. Each walks by
+## itself (the player plans co-op) and only the leash ties them: pulling apart they pull each
+## other, the one standing is led by the other, and their bodies bump instead of passing through.
+## The player starts with TOFU; the switch button (Tab) takes the other one, for testing.
+## The action button hammers a stake in: the leash is tied to it and the player gets the bunny.
+## Next to the stake the button pulls it out again and the player gets TOFU.
 
 const LEASH_GROUND := 3.0   ## how far apart the two ends may be on the ground, metres
 const LEASH_ROPE := 3.25   ## rope length in 3D (the ends are at different heights)
@@ -22,12 +25,15 @@ var puffs: Puffs
 var joystick: TouchJoystick
 var button: ActionButton
 var view_button: ViewButton
+var switch_button: SwitchButton
 var camera_rig: CameraRig
 var forced_input := Vector2.ZERO   ## scripted runs (screenshots, tests)
 var forced_run := false
+var partner_input := Vector3.ZERO  ## co-op later: the other character's wish (ground direction, length 0..1); scripts only for now
 var _hand: Node3D
 var _collar: Node3D
 var _busy := 0.0
+var _stake_spot := Vector3.ZERO   ## where she hammers (she faces it)
 var _time := 0.0
 
 
@@ -98,12 +104,15 @@ func _ready() -> void:
 	view_button = ViewButton.new()
 	ui.add_child(view_button)
 	view_button.pressed.connect(toggle_view)
+	switch_button = SwitchButton.new()
+	ui.add_child(switch_button)
+	switch_button.pressed.connect(switch_character)
 
 	camera_rig = CameraRig.new()
 	camera_rig.target = tofu
 	camera_rig.second = bunny
 	camera_rig.button = button
-	camera_rig.buttons = [view_button]
+	camera_rig.buttons = [view_button, switch_button]
 	camera_rig.stick_zone = TouchJoystick.ZONE
 	add_child(camera_rig)
 
@@ -113,6 +122,32 @@ func _unhandled_input(event: InputEvent) -> void:
 		act()
 	elif event.is_action_pressed("view"):
 		toggle_view()
+	elif event.is_action_pressed("switch"):
+		switch_character()
+
+
+## The one the player steers now, and the other.
+func steered() -> Actor:
+	return tofu if rules.steers_tofu() else bunny
+
+
+func partner() -> Actor:
+	return bunny if rules.steers_tofu() else tofu
+
+
+## The switch button (the player asked for it, to test each character): take the other one.
+func switch_character() -> void:
+	rules.switch()
+	_aim_camera()
+
+
+## The camera follows whoever the player steers (in first person, from its eyes).
+func _aim_camera() -> void:
+	camera_rig.target = steered()
+	camera_rig.second = partner()
+	if camera_rig.first_person:
+		camera_rig.set_first_person(true)
+	switch_button.set_bunny(not rules.steers_tofu())
 
 
 ## Third person <-> the eyes of the one you steer (the player asked for both).
@@ -127,7 +162,7 @@ func act() -> String:
 		return "busy"
 	var spot := bunny.position + bunny.global_transform.basis.z * 0.35
 	spot.y = Terrain.height(spot.x, spot.z)
-	var what := rules.act(spot if rules.steers_tofu() else bunny.position)
+	var what := rules.act(spot if rules.held() else bunny.position)
 	match what:
 		"staked":
 			stake.hammer_in(spot)
@@ -135,14 +170,12 @@ func act() -> String:
 			_busy = HAMMER_TIME
 			bunny.gait.hammer()
 			bunny.velocity = Vector3.ZERO
-			bunny.face_target = spot
-			camera_rig.target = bunny
-			camera_rig.second = tofu
+			_stake_spot = spot
+			_aim_camera()
 		"picked":
 			stake.pull_out()
 			leash.reattach_b(_hand)
-			camera_rig.target = tofu
-			camera_rig.second = bunny
+			_aim_camera()
 	return what
 
 
@@ -160,49 +193,18 @@ func _physics_process(delta: float) -> void:
 	var v := read_input()
 	var running := forced_run or Input.is_action_pressed("run") or v.length() > 0.92
 	if camera_rig != null:
-		camera_rig.set_body_leads(v.length() > 0.05 or (_busy > 0.0 and not rules.steers_tofu()))
+		camera_rig.set_body_leads(v.length() > 0.05 or (_busy > 0.0 and steered() == bunny))
 	if _busy > 0.0:
 		_busy -= delta
-		if _busy <= 0.0:
-			bunny.face_target = Vector3.INF
-	var eyes := Vector3(0, 1.0, 0)
-	if rules.steers_tofu():
-		_drive(tofu, v, running, delta)
-		_follow(bunny, tofu.position, delta)
-		tofu.face_target = Vector3.INF
-		tofu.gait.look_target = Vector3.INF
-		bunny.gait.hold_target = _collar.global_position
-		bunny.gait.look_target = tofu.position + eyes
-	else:
-		bunny.gait.dragged = false
-		bunny.gait.hold_target = Vector3.INF
-		bunny.gait.look_target = Vector3.INF
-		tofu.gait.look_target = bunny.position + eyes
-		if _busy > 0.0:
-			bunny.steer(Vector3.ZERO, delta, 30.0)
-		else:
-			bunny.face_target = Vector3.INF
-			_drive(bunny, v, running, delta)
-		# TOFU stays where the leash lets it be and watches the bunny.
-		tofu.steer(Vector3.ZERO, delta)
-		tofu.place(LeashRules.clamp_to(tofu.position, rules.stake_pos, LEASH_GROUND), delta)
-		tofu.face_target = bunny.position
+	_move(v, running, delta)
 	leash.colliders = tofu.capsules() + bunny.capsules() + _passage_caps
 	# Under a fallen trunk, whoever is there gets down and crawls.
 	for who in [tofu, bunny]:
 		who.gait.crawling = LowPassages.under(Vector2(who.position.x, who.position.z), passages)
 	# The collar's ring slides round toward the leash, so the rope leaves the neck on its side.
 	tofu.aim_collar(leash.pts[6] if leash.pts.size() > 6 else bunny.position, delta)
-	# First person: the one you steer turns its body to where you look (standing; walking already
-	# goes where you look), so the view never looks out through the back of its head.
-	# Walking (or busy) the body turns by itself and the view goes with it (`CameraRig.body_leads`).
-	if camera_rig.first_person:
-		var me: Actor = tofu if rules.steers_tofu() else bunny
-		if me.speed < 0.3 and not camera_rig.body_leads:
-			var ax: Array = camera_rig.ground_axes()
-			me.face_target = me.position + (ax[1] as Vector3) * 3.0
 	stake.set_hint(rules.can_pick(bunny.position), _time)
-	button.set_active(rules.steers_tofu() or rules.can_pick(bunny.position))
+	button.set_active(rules.held() or rules.can_pick(bunny.position))
 
 
 ## How fast `who` may crawl: as fast as its crawl clip looks natural.
@@ -210,35 +212,120 @@ func _crawl_speed(who: Actor) -> float:
 	return who.gait.rt.crawl_speed() if who.gait.rt != null else CRAWL_SPEED
 
 
-## The player's character: walk with the stick, run with the stick pushed far (or Shift).
-## The stick is read relative to the camera: "up" walks away from it.
-func _drive(who: Actor, v: Vector2, running: bool, delta: float) -> void:
+const PULL_LEAN := 0.18   ## the bunny leans this far forward while the leash pulls her (radians)
+
+
+## Moves both for one frame. Each wants something: the player's one goes where the stick says,
+## a partner with a wish (co-op later: `partner_input`) goes its way, a partner without one
+## follows on the leash (or stands while the leash is on the stake). Then the leash: the
+## overshoot is taken back from the one standing, or half from each when both pull. Then the
+## bodies: the one walking into the other is stopped.
+func _move(v: Vector2, running: bool, delta: float) -> void:
+	var me := steered()
+	var free := {}
+	var pulls := {}   # who walks by a wish of its own (not following)
+	var wishes := {}
+	for who: Actor in [tofu, bunny]:
+		var want := Vector3.ZERO
+		var accel := 12.0
+		var wish := Vector3.ZERO
+		if who == bunny and _busy > 0.0:
+			accel = 30.0   # hammering: stands still
+		elif who == me:
+			wish = camera_rig.to_ground(v) if camera_rig != null else Vector3(v.x, 0, v.y)
+			want = wish * _top_speed(who, running)
+		elif partner_input.length() > 0.05:
+			wish = partner_input.limit_length(1.0)
+			want = wish * _top_speed(who, partner_input.length() > 0.92)
+		elif rules.held():
+			want = _follow_velocity(who, (bunny if who == tofu else tofu).position)
+			accel = 10.0
+		pulls[who] = wish.length() > 0.05
+		wishes[who] = wish
+		who.velocity = who.velocity.move_toward(want, accel * delta)
+		free[who] = who.position + who.velocity * delta
+	# The leash.
+	var dragged := {tofu: false, bunny: false}
+	var taut := false
+	if rules.held():
+		var wt := 1.0 if pulls[tofu] else 0.0
+		var wb := 1.0 if pulls[bunny] else 0.0
+		if wt == wb:
+			wt = 0.5
+			wb = 0.5
+		var r := LeashRules.tug(free[tofu], free[bunny], LEASH_GROUND, 1.0 - wt, 1.0 - wb)
+		for k in 2:
+			var who: Actor = [tofu, bunny][k]
+			dragged[who] = (r[k] as Vector3).distance_to(free[who]) > 0.002
+			free[who] = r[k]
+		taut = dragged[tofu] or dragged[bunny]
+	else:
+		var held := LeashRules.clamp_to(free[tofu], rules.stake_pos, LEASH_GROUND)
+		taut = held.distance_to(free[tofu]) > 0.002
+		free[tofu] = held
+	# The bodies bump: the one walking into the other is stopped.
+	var to_b: Vector3 = free[bunny] - free[tofu]
+	to_b.y = 0.0
+	var n := to_b.normalized() if to_b.length() > 1e-5 else Vector3.RIGHT
+	var ap_t := maxf(tofu.velocity.dot(n), 0.0)
+	var ap_b := maxf(-bunny.velocity.dot(n), 0.0)
+	var sep := LeashRules.separate(free[tofu], free[bunny], float(tofu.data.radius) + float(bunny.data.radius), ap_t, ap_b)
+	free[tofu] = sep[0]
+	free[bunny] = sep[1]
+	# Led (not pulling itself): faces the one leading; the bunny leans after the leash (her
+	# "can't keep up" look); pulling against the leash she leans into it.
+	var eyes := Vector3(0, 1.0, 0)
+	for who: Actor in [tofu, bunny]:
+		var other: Actor = bunny if who == tofu else tofu
+		var led: bool = dragged[who] and not pulls[who]
+		who.face_target = _facing(who, other, led, pulls[who], wishes[who])
+		who.gait.dragged = led
+		who.extra_lean = PULL_LEAN if who == bunny and dragged[who] else 0.0
+		who.gait.look_target = Vector3.INF if pulls[who] else other.position + eyes
+		who.place(free[who], delta)
+	if rules.held():
+		bunny.gait.hold_target = _collar.global_position
+		bunny.gait.hold_pull = lerpf(bunny.gait.hold_pull, 1.0 if taut else 0.15, 1.0 - exp(-3.0 * delta))
+	else:
+		bunny.gait.hold_target = Vector3.INF
+
+
+## Where `who` turns to this frame (Vector3.INF: where it moves).
+func _facing(who: Actor, other: Actor, led: bool, pulls: bool, wish: Vector3) -> Vector3:
+	if led:
+		return other.position                 # led on the leash: after the one leading
+	if pulls:
+		return who.position + wish * 3.0      # its own way (pulled back, it still faces there)
+	if who == bunny and _busy > 0.0:
+		return _stake_spot                    # hammering
+	# First person, standing: the body turns to where you look, so the view never looks out
+	# through the back of its head (walking, the body leads and the view goes with it).
+	if camera_rig != null and camera_rig.first_person and who == steered() and who.speed < 0.3 and not camera_rig.body_leads:
+		return who.position + (camera_rig.ground_axes()[1] as Vector3) * 3.0
+	if who == tofu and not rules.held():
+		return other.position                 # tied to the stake, it stands and watches her
+	return Vector3.INF
+
+
+## How fast `who` may go: walking or running, never quicker than its crawl looks natural.
+func _top_speed(who: Actor, running: bool) -> float:
 	var top: float = who.data.run if running else who.data.walk
 	if who.gait.crawling or who.gait.crawl > 0.2:
 		top = minf(top, _crawl_speed(who))
-	var dir := camera_rig.to_ground(v) if camera_rig != null else Vector3(v.x, 0, v.y)
-	who.steer(dir * top, delta)
+	return top
 
 
-## The bunny holding the leash: walks after TOFU, and is dragged when the leash is taut.
-func _follow(who: Actor, leader: Vector3, delta: float) -> void:
+## The one following on the leash: walks after the leader once the leash grows long.
+func _follow_velocity(who: Actor, leader: Vector3) -> Vector3:
 	var to := leader - who.position
 	to.y = 0.0
 	var dist := to.length()
-	var want := Vector3.ZERO
-	if dist > 0.001:
-		want = to / dist * LeashRules.follow_speed(dist, LEASH_GROUND, float(who.data.run))
+	if dist < 0.001:
+		return Vector3.ZERO
+	var want := to / dist * LeashRules.follow_speed(dist, LEASH_GROUND, float(who.data.run))
 	if who.gait.crawling or who.gait.crawl > 0.2:
 		want = want.limit_length(_crawl_speed(who))
-	who.velocity = who.velocity.move_toward(want, 10.0 * delta)
-	var free := who.position + who.velocity * delta
-	var held := LeashRules.clamp_to(free, leader, LEASH_GROUND)
-	var dragged := free.distance_to(held) > 0.002
-	who.face_target = leader if dragged else Vector3.INF
-	who.extra_lean = 0.18 if dragged else 0.0   # pulled along: she leans after the leash (the player asked)
-	who.gait.dragged = dragged
-	who.gait.hold_pull = lerpf(who.gait.hold_pull, 1.0 if dragged else 0.15, 1.0 - exp(-3.0 * delta))
-	who.place(held, delta)
+	return want
 
 
 func _on_step(pos: Vector3, size: float, who: Node3D) -> void:
@@ -312,6 +399,7 @@ func _setup_input() -> void:
 		"run": [KEY_SHIFT],
 		"act": [KEY_SPACE, KEY_E],
 		"view": [KEY_V],
+		"switch": [KEY_TAB],
 	}
 	for action in keys:
 		if InputMap.has_action(action):
