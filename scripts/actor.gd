@@ -11,6 +11,7 @@ signal footstep(pos: Vector3, size: float)
 const BUNNY := {
 	# Her T-posed model with a clean skeleton (tools/tpose_bunny.gd makes it from the Sketchfab file).
 	"path": "res://assets/chobby_tpose.glb", "height": 1.6, "sole": 0.032,
+	"sit": "w",   # the sit button: her "frog" W-sit (the player chose it; Gait.SIT)
 	"soft_press": true,   # lying down, her chest, belly and thighs give against the ground (per vertex)
 	"flesh": ["Object_11", "Object_672"],   # her butt, thighs and belly are soft and springy (SoftFlesh; the player asked): skin and shorts
 	"eye": Vector3(0, 0.10, 0.125),   # first person: from her head bone (measured on her face)
@@ -83,6 +84,7 @@ const BUNNY := {
 ## TOFU: the red panda on the leash (rig made by tools/blender/rig_tofu.py).
 const TOFU := {
 	"path": "res://assets/tofu_rigged.glb", "height": 1.1,
+	"sit": "dog",   # the sit button: sitting like a dog (the player chose it; Gait.SIT)
 	"eye": Vector3(0, 0.09, 0.03),   # first person: from its head bone (back from its long snout, so the collar shows below)
 	"walk": 1.6, "run": 3.8, "stride": 1.1, "run_stride": 2.0, "radius": 0.25,
 	"bones": {
@@ -170,6 +172,7 @@ func _ready() -> void:
 		gait.stride = data.stride
 		gait.run_stride = data.run_stride
 		gait._height_hint = float(data.height)
+		gait.sit_style = String(data.get("sit", ""))
 		if gait.rt != null:
 			gait.rt.height = float(data.height)
 		gait.walk_speed = data.walk
@@ -417,7 +420,7 @@ func animate(delta: float, spd: float) -> void:
 		var k := smoothstep(0.0, 1.0, gait.crawl)
 		for m in _press:
 			m.set_shader_parameter("floor_y", global_position.y)
-			m.set_shader_parameter("press", k)
+			m.set_shader_parameter("press", maxf(k, smoothstep(0.0, 1.0, gait.sit)))   # sitting, her butt and thighs give against the ground too
 			m.set_shader_parameter("paw", paw_touch)
 			if not _flesh_regions.is_empty():
 				m.set_shader_parameter("flesh_on", 1.0)

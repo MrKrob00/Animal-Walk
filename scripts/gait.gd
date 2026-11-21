@@ -334,11 +334,13 @@ func update(delta: float, measured: float) -> int:
 	for b in _ids("tail"):
 		var drive := (0.3 * w * sin(phase) + 0.14 * idle * sin(_time * 1.3)) if k == 0 else prev
 		var t_yaw: float = _tail[k].step(drive - _turn * 0.08, delta, 6.0 - k, 0.3)
-		_pose_bone(b, -0.06 * w + (TAIL_CRAWL / 3.0) * smoothstep(0.0, 1.0, crawl), t_yaw, 0.0)   # lying down, it lies back along the ground
+		var sk_ := smoothstep(0.0, 1.0, sit) if sit_style == "dog" else 0.0   # sitting, it lies round on the ground
+		_pose_bone(b, -0.06 * w + (TAIL_CRAWL / 3.0) * smoothstep(0.0, 1.0, crawl) + TAIL_SIT[0] / 3.0 * sk_, t_yaw + TAIL_SIT[1] / 3.0 * sk_, 0.0)   # lying down, it lies back along the ground
 		prev = t_yaw
 		k += 1
 
 	_pulled_along(delta)
+	_sit_pose(delta)
 	_reach_for_leash(delta)
 	_paw_reach(delta)
 	_crawl_ground()
@@ -556,8 +558,19 @@ func bob() -> float:
 ## Where the body sits this frame (metres, character space): the clips' hips, or the bob.
 func body_offset(height: float) -> Vector3:
 	if rt != null:
-		return _offset - Vector3(0, 0.06 * _hammer_env(0.0) * height, 0) + Vector3(0, crawl_lift * smoothstep(0.0, 1.0, crawl), 0)
+		return _offset - Vector3(0, 0.06 * _hammer_env(0.0) * height, 0) + Vector3(0, crawl_lift * smoothstep(0.0, 1.0, crawl), 0) - Vector3(0, _sit_drop() * smoothstep(0.0, 1.0, sit), 0)
 	return Vector3(0, bob() * height, 0)
+
+
+## How far the body goes down to sit: from the hip joints' standing height to the style's.
+func _sit_drop() -> float:
+	if not SIT.has(sit_style):
+		return 0.0
+	if _hip_h < 0.0 and _body != null and _body.get_parent() is Node3D and _one("thigh_l") >= 0:
+		var actor := _body.get_parent() as Node3D
+		var hip := skeleton.global_transform * skeleton.get_bone_global_rest(_one("thigh_l")).origin
+		_hip_h = hip.y - actor.global_position.y - _body.position.y
+	return maxf(_hip_h - float(SIT[sit_style].hip), 0.0)
 
 
 ## Forward lean of the whole body (radians), from the gait plus any extra lean.
@@ -689,6 +702,148 @@ func _crawl_ground() -> void:
 			if T.y < lo:
 				var want := Vector3(T.x, lo, T.z) - E4
 				turn.call(e, _arc((T - E4).normalized(), want.normalized()))
+
+
+## Sitting (the sit button; the player chose the poses): the pelvis goes down to the ground, the
+## legs and arms are put by two-bone IK to targets in the body's frame, blended in over SIT_TIME.
+##   "w"   (the bunny, "frog" / W-sit): the butt on the ground between the feet, the knees in
+##         front and close, the shins folded back and out so the paws lie beside the hips,
+##         toes back; the hands rest on the thighs.
+##   "dog" (TOFU, sitting like a dog): the butt on the ground, the knees up and apart, the feet
+##         flat in front, the front paws on the ground between them, the back a little round,
+##         the tail lying round on the ground.
+const SIT_TIME := 0.7
+const TAIL_SIT := [-1.3, 1.5]   ## dog sit: the tail down onto the ground and round to the side (radians over its bones)
+const SIT := {
+	"w": {"hip": 0.13, "pelvis": 0.10, "ankle": Vector3(0.28, 0.055, 0.04), "pole": Vector3(-0.15, -0.1, 0.6),
+		"knee": Vector3(-0.12, 0.085, 1.0),
+		"toe": Vector3(0.75, -0.12, -0.65), "hand": "thigh"},
+	"dog": {"hip": 0.12, "pelvis": -0.28, "ankle": Vector3(0.13, 0.07, 0.22), "pole": Vector3(0.3, 0.7, 0.35),
+		"toe": Vector3(0.25, -0.05, 1.0), "hand": Vector3(0.08, 0.055, 0.26)},
+}   ## metres / radians: "hip" the hip joints' height sitting; "pelvis" tipped forward (+) or back;
+    ## "ankle", "pole", "toe", "hand" in the body's frame (x out to the side, y up, z forward),
+    ## the ankle from the hip joint, the hand from the hips' middle; the "pole" is where the knee goes;
+    ## "knee" (W-sit): the thigh's way (x, z) and the knee's height (y) - put by hand, since an
+    ## IK toward the ankle beside the hip swung the knees out to the sides.
+
+var sitting := false        ## set by the game
+var sit := 0.0              ## 0..1, eased
+var sit_style := "w"        ## set by the actor ("sit" in its map)
+var _hip_h := -1.0          ## the hip joints' height standing (metres), measured once
+
+
+func _sit_pose(delta: float) -> void:
+	sit = move_toward(sit, 1.0 if sitting and crawl < 0.05 else 0.0, delta / SIT_TIME)
+	var k := smoothstep(0.0, 1.0, sit)
+	if k < 0.001 or _body == null or not (_body.get_parent() is Node3D) or not SIT.has(sit_style):
+		return
+	var spec: Dictionary = SIT[sit_style]
+	var actor := _body.get_parent() as Node3D
+	var floor_y := actor.global_position.y
+	var fwd := actor.global_basis.z.normalized()
+	var left := actor.global_basis.x.normalized()
+	var sk_rot := skeleton.global_transform.basis.orthonormalized().get_rotation_quaternion()
+	var corr: Vector3 = actor.global_basis * (body_offset(_height_hint) - _body.position)
+	var at := func(b: int) -> Vector3: return skeleton.global_transform * skeleton.get_bone_global_pose(b).origin + corr
+	var turn := func(b: int, q: Quaternion) -> void:
+		var g := skeleton.get_bone_global_pose(b).basis.orthonormalized().get_rotation_quaternion()
+		_set_global_rot(b, (sk_rot.inverse() * q * sk_rot) * g)
+	# The pelvis squares up to the body (standing, it shifts its weight and turns: the hips 6 cm
+	# apart front to back folded one knee past its limit), then tips (the spine turns it back,
+	# the chest stays upright).
+	var pel := _one("pelvis")
+	var tip: float = spec.pelvis * k
+	if pel >= 0 and _one("thigh_l") >= 0 and _one("thigh_r") >= 0:
+		var line: Vector3 = at.call(_one("thigh_l")) - at.call(_one("thigh_r"))
+		line.y = 0.0
+		if line.length() > 1e-4:
+			turn.call(pel, Quaternion.IDENTITY.slerp(_arc(line.normalized(), left), k))
+	if pel >= 0:
+		turn.call(pel, Quaternion(left, tip))
+		var sp := _ids("spine")
+		if not sp.is_empty():
+			turn.call(sp[0], Quaternion(left, -tip * 0.8))
+	var frame := func(v: Vector3, out: Vector3) -> Vector3: return out * v.x + Vector3.UP * v.y + fwd * v.z
+	var knees := []
+	for side in [["l", 1.0], ["r", -1.0]]:
+		var u := _one("thigh_" + side[0])
+		var m := _one("shin_" + side[0])
+		var e := _one("foot_" + side[0])
+		if u < 0 or m < 0 or e < 0:
+			continue
+		var out: Vector3 = left * side[1]
+		var H: Vector3 = at.call(u)
+		var want: Vector3 = H + frame.call(spec.ankle, out)
+		want.y = floor_y + float(spec.ankle.y)
+		var E: Vector3 = at.call(e)
+		if spec.has("knee"):
+			# The thigh forward along the ground, the knee at its height; the shin back to the ankle.
+			var M: Vector3 = at.call(m)
+			var l1 := H.distance_to(M)
+			var kd: Vector3 = spec.knee
+			var flat: Vector3 = (out * kd.x + fwd * kd.z).normalized()
+			var dy := clampf(floor_y + kd.y - H.y, -l1 * 0.9, l1 * 0.9)
+			var K := H + flat * sqrt(l1 * l1 - dy * dy) + Vector3.UP * dy
+			turn.call(u, Quaternion.IDENTITY.slerp(_arc((M - H).normalized(), (K - H).normalized()), k))
+			var M2: Vector3 = at.call(m)
+			var E2: Vector3 = at.call(e)
+			turn.call(m, Quaternion.IDENTITY.slerp(_arc((E2 - M2).normalized(), (want - M2).normalized()), k))
+		else:
+			_ik_world(u, m, e, E.lerp(want, k), H + frame.call(spec.pole, out), turn, at)
+		knees.append(at.call(m))
+		# The paw along the ground.
+		var toe := find_bone(skeleton, "DEF-toe." + side[0].to_upper())
+		var d: Vector3 = (frame.call(spec.toe, out) as Vector3).normalized()
+		var foot_now: Vector3 = (at.call(toe) - at.call(e)) if toe >= 0 else (skeleton.global_transform.basis * skeleton.get_bone_global_pose(e).basis.y)
+		turn.call(e, Quaternion.IDENTITY.slerp(_arc(foot_now.normalized(), d), k))
+		if toe >= 0:
+			var t_now: Vector3 = skeleton.global_transform.basis * skeleton.get_bone_global_pose(toe).basis.y
+			turn.call(toe, Quaternion.IDENTITY.slerp(_arc(t_now.normalized(), d), k))
+	# The hands: on the thighs, or on the ground in front.
+	var mid: Vector3 = (at.call(_one("thigh_l")) + at.call(_one("thigh_r"))) * 0.5 if _one("thigh_l") >= 0 and _one("thigh_r") >= 0 else actor.global_position
+	var ki := 0
+	for side in [["l", 1.0], ["r", -1.0]]:
+		var u := _one("upper_arm_" + side[0])
+		var m := _one("forearm_" + side[0])
+		var e := _one("hand_" + side[0])
+		if u < 0 or m < 0 or e < 0:
+			continue
+		var out: Vector3 = left * side[1]
+		var want: Vector3
+		if spec.hand is String:
+			var H: Vector3 = at.call(_one("thigh_" + side[0]))
+			var K: Vector3 = knees[ki] if ki < knees.size() else H + fwd * 0.3
+			want = H.lerp(K, 0.6) + Vector3.UP * 0.075 * _height_hint / 1.6
+		else:
+			want = mid + frame.call(spec.hand, out)
+			want.y = floor_y + float(spec.hand.y)
+		ki += 1
+		var S: Vector3 = at.call(u)
+		var E: Vector3 = at.call(e)
+		_ik_world(u, m, e, E.lerp(want, k), S - Vector3.UP * 0.3 + out * 0.3 - fwd * 0.2, turn, at)
+
+
+## Two-bone IK in the world: `u` -> `m` -> `e` so the end reaches `target`, the middle joint
+## bending toward `pole`. `turn`/`at`: as in _sit_pose.
+func _ik_world(u: int, m: int, e: int, target: Vector3, pole: Vector3, turn: Callable, at: Callable) -> void:
+	var S: Vector3 = at.call(u)
+	var M: Vector3 = at.call(m)
+	var E: Vector3 = at.call(e)
+	var l1 := S.distance_to(M)
+	var l2 := M.distance_to(E)
+	var d := clampf(S.distance_to(target), absf(l1 - l2) + 1e-4, l1 + l2 - 1e-4)
+	var along := (target - S).normalized()
+	var side := pole - S
+	side = side - along * side.dot(along)
+	if side.length() < 1e-5:
+		return
+	side = side.normalized()
+	var a := (l1 * l1 + d * d - l2 * l2) / (2.0 * d)
+	var M2 := S + along * a + side * sqrt(maxf(l1 * l1 - a * a, 0.0))
+	turn.call(u, _arc((M - S).normalized(), (M2 - S).normalized()))
+	var M3: Vector3 = at.call(m)
+	var E3: Vector3 = at.call(e)
+	turn.call(m, _arc((E3 - M3).normalized(), (S + along * d - M3).normalized()))
 
 
 ## Pulled along, she can't keep up (the player asked): the body goes after the leash hand. The

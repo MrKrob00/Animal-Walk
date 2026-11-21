@@ -27,6 +27,7 @@ var button: ActionButton
 var view_button: ViewButton
 var switch_button: SwitchButton
 var arm_stick: ArmStick
+var sit_button: SitButton
 var camera_rig: CameraRig
 var forced_input := Vector2.ZERO   ## scripted runs (screenshots, tests)
 var forced_run := false
@@ -105,6 +106,9 @@ func _ready() -> void:
 	button = ActionButton.new()
 	ui.add_child(button)
 	button.pressed.connect(act)
+	sit_button = SitButton.new()
+	ui.add_child(sit_button)
+	sit_button.pressed.connect(sit_toggle)
 	view_button = ViewButton.new()
 	ui.add_child(view_button)
 	view_button.pressed.connect(toggle_view)
@@ -116,7 +120,7 @@ func _ready() -> void:
 	camera_rig.target = tofu
 	camera_rig.second = bunny
 	camera_rig.button = button
-	camera_rig.buttons = [view_button, switch_button, arm_stick]
+	camera_rig.buttons = [view_button, switch_button, arm_stick, sit_button]
 	camera_rig.stick_zone = TouchJoystick.ZONE
 	add_child(camera_rig)
 
@@ -128,6 +132,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		toggle_view()
 	elif event.is_action_pressed("switch"):
 		switch_character()
+	elif event.is_action_pressed("sit"):
+		sit_toggle()
+
+
+## The sit button: the one you steer sits down, or gets up (the player asked; the bunny in her
+## "frog" W-sit, TOFU like a dog). Not while crawling or hammering. Walking off (the stick) or
+## being pulled along by the leash gets it up again.
+func sit_toggle() -> void:
+	var who := steered()
+	if who.gait.crawling or who.gait.crawl > 0.05 or (who == bunny and _busy > 0.0):
+		return
+	who.gait.sitting = not who.gait.sitting
 
 
 ## The one the player steers now, and the other.
@@ -211,6 +227,7 @@ func _physics_process(delta: float) -> void:
 		who.gait.crawling = LowPassages.under(Vector2(who.position.x, who.position.z), passages)
 	# The collar's ring slides round toward the leash, so the rope leaves the neck on its side.
 	tofu.aim_collar(leash.pts[6] if leash.pts.size() > 6 else bunny.position, delta)
+	sit_button.set_sitting(steered().gait.sitting)
 	stake.set_hint(rules.can_pick(bunny.position), _time)
 	button.set_active(rules.held() or rules.can_pick(bunny.position))
 
@@ -306,10 +323,15 @@ func _move(v: Vector2, running: bool, delta: float) -> void:
 		elif who == me:
 			wish = camera_rig.to_ground(v) if camera_rig != null else Vector3(v.x, 0, v.y)
 			want = wish * _top_speed(who, running)
+			if who.gait.sitting and v.length() > 0.3:
+				who.gait.sitting = false   # walking off: it gets up first
+			if who.gait.sit > 0.15:
+				want = Vector3.ZERO         # still getting up
+				wish = wish * 0.0
 		elif partner_input.length() > 0.05:
 			wish = partner_input.limit_length(1.0)
 			want = wish * _top_speed(who, partner_input.length() > 0.92)
-		elif rules.held():
+		elif rules.held() and not who.gait.sitting:   # sitting, it stays until the leash pulls it up
 			want = _follow_velocity(who, (bunny if who == tofu else tofu).position)
 			accel = 10.0
 		pulls[who] = wish.length() > 0.05
@@ -350,6 +372,8 @@ func _move(v: Vector2, running: bool, delta: float) -> void:
 	for who: Actor in [tofu, bunny]:
 		var other: Actor = bunny if who == tofu else tofu
 		var led: bool = dragged[who] and not pulls[who]
+		if led and who.gait.sitting:
+			who.gait.sitting = false   # pulled along by the leash: it gets up
 		who.face_target = _facing(who, other, led, pulls[who], wishes[who])
 		who.gait.dragged = led
 		who.extra_lean = PULL_LEAN if who == bunny and dragged[who] else 0.0
@@ -472,6 +496,7 @@ func _setup_input() -> void:
 		"act": [KEY_SPACE, KEY_E],
 		"view": [KEY_V],
 		"switch": [KEY_TAB],
+		"sit": [KEY_C],
 		"paw_left": [KEY_J],
 		"paw_right": [KEY_L],
 		"paw_up": [KEY_I],
