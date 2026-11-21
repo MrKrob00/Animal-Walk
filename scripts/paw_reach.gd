@@ -5,6 +5,9 @@ extends RefCounted
 ## something: the ground, a rock, bush or trunk, or the bunny's body. It never goes inside them;
 ## only her soft chest gives a little under it (and her skin is pushed out of the paw by the
 ## shader, `shaders/soft_press.gdshader`), which also wobbles it (`Gait.soft_poke`).
+## The paw is its palm (about 3 cm thick, the player wanted it to come right up to things, not
+## stop short as a 6 cm ball did): where it meets something it lies on it - the palm turned to
+## the surface, the fingers along it, curled round what curves away under them (`Gait`).
 
 const AZ_OUT := 1.2     ## radians the arm swings out to the right side (stick right)
 const AZ_IN := 0.7      ## ... and across the chest (stick left)
@@ -16,6 +19,8 @@ const SOFT_GIVE := 0.03 ## metres the paw may sink into soft skin (the chest)
 const MIN_REACH := 0.2  ## a paw stopped closer than this to the shoulder would fold the arm up
                         ## unnaturally: the arm goes lower instead (or stays down)
 const LOWER := 0.2      ## radians per try, lowering the arm
+const FINGER := 0.07    ## metres from the palm's middle to the finger tips
+const CURL_MAX := 1.2   ## radians the fingers curl at most round a surface (and bend back -0.25)
 
 
 ## The line the stick points along, in the world: `stick` x right, y down as on the screen.
@@ -71,7 +76,52 @@ static func reach(shoulder: Vector3, dir: Vector3, arm: float, paw_r: float, paw
 		at = from.lerp(to, lo)
 	else:
 		hit = true
-	return {"paw": at, "wrist": at - dir * paw_off, "hit": hit, "soft": hit and touches_soft(at, paw_r, shapes)}
+	var out := {"paw": at, "hit": hit, "soft": hit and touches_soft(at, paw_r, shapes), "normal": Vector3.ZERO, "tan": dir, "curl": 0.0}
+	if hit:
+		# The surface it meets: the nearest thing to the palm, its normal, the fingers along it,
+		# and how far it falls away under the finger tips (the fingers curl after it).
+		var near := _nearest(at, paw_r, shapes, obs)
+		var n: Vector3 = near.normal
+		var t := dir - n * dir.dot(n)
+		t = t.normalized() if t.length() > 1e-3 else n.cross(Vector3.UP).normalized()
+		var tip := at + t * FINGER
+		var gap: float = (_clearance(tip, paw_r, near) as float)
+		out.normal = n
+		out.tan = t
+		out.curl = clampf(atan2(gap, FINGER), -0.25, CURL_MAX)
+	return out
+
+
+## The thing nearest the palm at `p`: {"kind", "normal", ...} (ground, an obstacle, a shape).
+static func _nearest(p: Vector3, r: float, shapes: Array, obs: Obstacles) -> Dictionary:
+	var best := {"kind": "ground", "normal": Vector3.UP, "clear": p.y - Terrain.height(p.x, p.z)}
+	if obs != null:
+		for o in obs.near(p.x, p.z, 1.0):
+			var d := Vector2(p.x - o.x, p.z - o.y)
+			var c: float = d.length() - float(o.z)
+			if c < best.clear:
+				var nd := d.normalized() if d.length() > 1e-5 else Vector2(1, 0)
+				best = {"kind": "obstacle", "normal": Vector3(nd.x, 0, nd.y), "clear": c, "o": o}
+	for s in shapes:
+		var ab: Vector3 = s[1] - s[0]
+		var k := clampf((p - s[0]).dot(ab) / maxf(ab.length_squared(), 1e-9), 0.0, 1.0)
+		var q: Vector3 = s[0] + ab * k
+		var c := p.distance_to(q) - float(s[2]) + (SOFT_GIVE if s[3] else 0.0)
+		if c < best.clear:
+			best = {"kind": "shape", "normal": (p - q).normalized() if p.distance_to(q) > 1e-5 else Vector3.UP, "clear": c, "s": s}
+	return best
+
+
+## How far a palm at `p` stands off the thing `near` beyond touching (0 = touching).
+static func _clearance(p: Vector3, r: float, near: Dictionary) -> float:
+	match near.kind:
+		"obstacle":
+			var o: Vector3 = near.o
+			return Vector2(p.x - o.x, p.z - o.y).length() - o.z - r
+		"shape":
+			var s: Array = near.s
+			return seg_distance(p, s[0], s[1]) - float(s[2]) + (SOFT_GIVE if s[3] else 0.0) - r
+	return p.y - Terrain.height(p.x, p.z) - r
 
 
 ## Is a paw of radius `r` at `p` inside anything?

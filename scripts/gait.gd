@@ -21,7 +21,6 @@ var hold_pull := 0.0       ## 0..1: how hard the leash pulls the hand
 var speed := 0.0           ## smoothed speed used for the pose, m/s
 var dragged := false       ## set by the game: the leash is taut and pulls this character
 var paw_target := Vector3.INF   ## set by the game: where the right paw's centre reaches (the paw stick); INF: hanging
-var paw_off := 0.1              ## the paw's centre is this far past the wrist, along the forearm
 var soft_poke := Vector4.ZERO   ## set by the game: a paw (centre, radius) the soft parts' tips are pushed out of
 var soft_poke_vel := Vector3.ZERO   ## ... and how fast it moves (m/s)
 var motion_fix := Vector3.ZERO  ## set by the actor: its position eased between physics ticks minus where it is (springs only)
@@ -1128,22 +1127,45 @@ func _reach_for_leash(delta: float) -> void:
 	skeleton.set_bone_pose_rotation(fa, skeleton.get_bone_pose_rotation(fa) * Quaternion(gb2.inverse() * Basis(q2) * gb2))
 
 
-## The right paw on the second stick: the paw's centre goes to `paw_target` (PawReach already
-## stopped it at whatever it meets; the forearm and paw reach as one segment, so the paw lands
-## there whatever the elbow does) through a quick, well damped spring, the elbow down, out and back;
-## let go, the arm eases back to hanging in about 0.4 s.
+## The right paw on the second stick: the palm's middle goes to `paw_target` (PawReach already
+## stopped it at whatever it meets). Through a quick, well damped spring the wrist is put by
+## two-bone IK (the elbow down, out and back), then the hand is turned: in the air along the
+## line to the target; on a surface (`paw_normal`) the palm against it and the fingers along it
+## (`paw_tan`), curled round what falls away under them (`paw_curl`). Let go, the arm eases back
+## to hanging in about 0.4 s. The fingers rest a little curled otherwise (both hands).
 const PAW_EASE := 2.5      ## per second, in and out
 const PAW_FREQ := 3.0      ## the wrist's spring, Hz (an arm moves, a cursor jumps)
+const PAW_LIE := 6.0       ## per second, the hand turning to lie on a surface and back
+const WRIST_LIFT := 0.008  ## lying on a surface, the wrist stands this far off it (a real hand's arch)
+const FINGERS_REST := 0.35 ## radians the fingers curl at rest
 
+var paw_normal := Vector3.ZERO   ## set by the game: the surface the paw lies on (from it toward the paw); ZERO: none
+var paw_tan := Vector3.FORWARD   ## set by the game: the fingers' way along it
+var paw_curl := 0.0              ## set by the game: how far the fingers curl round it
+var paw_palm := 0.065            ## the palm's middle is this far past the wrist (metres)
 var _paw := 0.0
+var _lie := 0.0
+var _lie_n := Vector3.UP
+var _lie_t := Vector3.FORWARD
+var _curl := FINGERS_REST
 var _paw_point := Vector3.ZERO
 var _paw_x := Vector3.ZERO
 var _paw_v := Vector3.ZERO
 var _paw_ready := false
+var _finger_axes := {}           ## bone -> its curl axis (local)
 
 
 func _paw_reach(delta: float) -> void:
 	_paw = move_toward(_paw, 1.0 if paw_target != Vector3.INF and crawl < 0.05 else 0.0, delta * PAW_EASE)
+	_lie = move_toward(_lie, 1.0 if paw_normal != Vector3.ZERO and paw_target != Vector3.INF else 0.0, delta * PAW_LIE)
+	if paw_normal != Vector3.ZERO:
+		_lie_n = paw_normal.normalized()
+		_lie_t = paw_tan.normalized()
+	var flat := 1.0 - smoothstep(0.0, 1.0, crawl)   # crawling, the paws lie flat on the ground
+	var want_curl := lerpf(FINGERS_REST, paw_curl, _lie * _paw) * flat
+	_curl = lerpf(_curl, want_curl, 1.0 - exp(-10.0 * delta))
+	_curl_fingers("r", _curl)
+	_curl_fingers("l", FINGERS_REST * flat)
 	var ua := _one("upper_arm_r")
 	var fa := _one("forearm_r")
 	var hand := _one("hand_r")
@@ -1153,25 +1175,80 @@ func _paw_reach(delta: float) -> void:
 	if paw_target != Vector3.INF:
 		_paw_point = paw_target
 	var to_sk := skeleton.global_transform.affine_inverse()
+	var sk_b := skeleton.global_transform.basis
+	var unit := 1.0 / sk_b.get_scale().x   # metres to the rig's units
 	var g_ua := skeleton.get_bone_global_pose(ua)
 	var g_fa := skeleton.get_bone_global_pose(fa)
 	var wr := skeleton.get_bone_global_pose(hand).origin
-	var tip := wr + (wr - g_fa.origin).normalized() * paw_off / skeleton.global_transform.basis.get_scale().x   # metres to the rig's units
+	# The hand's way: along the line from the shoulder in the air, along the surface on one.
 	var goal := to_sk * _paw_point
+	var free_dir := (goal - g_ua.origin).normalized()
+	var lie_n := (sk_b.inverse() * _lie_n).normalized()
+	var lie_t := (sk_b.inverse() * _lie_t).normalized()
+	var dir := free_dir.slerp(lie_t, _lie).normalized()
+	var wrist_goal := goal - dir * paw_palm * unit + lie_n * WRIST_LIFT * unit * _lie
 	if not _paw_ready:
-		_paw_x = tip
+		_paw_x = wr
 		_paw_v = Vector3.ZERO
 		_paw_ready = true
 	# Critically damped (no overshoot into what it met), solved exactly: stable however long
 	# the frame (an explicit step blew up on long frames).
 	var wk := TAU * PAW_FREQ
-	var dx := _paw_x - goal
+	var dx := _paw_x - wrist_goal
 	var k := (_paw_v + dx * wk) * delta
 	var e := exp(-wk * delta)
-	_paw_x = goal + (dx + k) * e
+	_paw_x = wrist_goal + (dx + k) * e
 	_paw_v = (_paw_v - k * wk) * e
-	var target := tip.lerp(_paw_x, smoothstep(0.0, 1.0, _paw))
-	_two_bone(ua, fa, g_ua, g_fa, tip, target, -_up_sk - _side_sk * 0.6 - _fwd_sk * 0.3)
+	var w := smoothstep(0.0, 1.0, _paw)
+	_two_bone(ua, fa, g_ua, g_fa, wr, wr.lerp(_paw_x, w), -_up_sk - _side_sk * 0.6 - _fwd_sk * 0.3)
+	# Turn the hand: its length along `dir`; lying on a surface, the palm to it.
+	var g_h := skeleton.get_bone_global_pose(hand).basis.orthonormalized()
+	var y_now := g_h.y.normalized()
+	var palm_now := (g_h * _palm_local(hand, "r")).normalized()
+	var palm_want := palm_now.slerp(-lie_n, _lie)
+	var from_b := _hand_frame(y_now, palm_now)
+	var to_b := _hand_frame(dir, palm_want)
+	var q := Quaternion(to_b * from_b.inverse()).normalized()
+	_set_global_rot(hand, Quaternion.IDENTITY.slerp(q, w) * g_h.get_rotation_quaternion())
+
+
+## An orthonormal basis with `y` along `along` and z toward `toward` (made square to it).
+static func _hand_frame(along: Vector3, toward: Vector3) -> Basis:
+	var y := along.normalized()
+	var z := toward - y * toward.dot(y)
+	z = z.normalized() if z.length() > 1e-5 else y.cross(Vector3.RIGHT).normalized()
+	return Basis(y.cross(z), y, z)
+
+
+## The way a hand's palm faces, in the hand bone's own frame: inward at rest (toward the body's
+## middle: +X for the right hand, -X for the left).
+func _palm_local(b: int, s: String) -> Vector3:
+	var rest := skeleton.get_bone_global_rest(b).basis.orthonormalized()
+	return (rest.inverse() * (_side_sk * (-1.0 if s == "l" else 1.0))).normalized()
+
+
+## Curls a paw's fingers (and less its thumb) toward the palm, `a` radians (bones "paw_fingers_*",
+## "paw_thumb_*": TOFU only; the bunny's fingers are her own).
+func _curl_fingers(s: String, a: float) -> void:
+	for pair in [["paw_fingers_" + s, 1.0], ["paw_thumb_" + s, 0.6]]:
+		var b := _one(pair[0])
+		if b < 0:
+			continue
+		if not _finger_axes.has(b):
+			var palm := _palm_local(b, s)
+			_finger_axes[b] = Vector3.UP.cross(palm).normalized()
+		skeleton.set_bone_pose_rotation(b, skeleton.get_bone_rest(b).basis.get_rotation_quaternion() * Quaternion(_finger_axes[b], a * float(pair[1]) + (0.1 if pair[1] < 1.0 else 0.0)))
+
+
+## How far the paw is out: 0 hanging .. 1 reaching.
+func paw_out() -> float:
+	return _paw
+
+
+## How far the hand lies on a surface (0..1) and that surface's normal.
+func paw_lying() -> float:
+	return _lie * _paw
+
 
 ## Two-bone IK in skeleton space: turns `ua` and `fa` so the wrist (now at `wr`) reaches
 ## `target`, the elbow bending toward `pole`.
@@ -1192,11 +1269,6 @@ func _two_bone(ua: int, fa: int, g_ua: Transform3D, g_fa: Transform3D, wr: Vecto
 	var q2 := _arc(fa_now, (sh + u * d - el_new).normalized())
 	var gb2 := (Basis(q1) * g_fa.basis.orthonormalized()).orthonormalized()
 	skeleton.set_bone_pose_rotation(fa, skeleton.get_bone_pose_rotation(fa) * Quaternion(gb2.inverse() * Basis(q2) * gb2))
-
-
-## How far the paw is out: 0 hanging .. 1 reaching.
-func paw_out() -> float:
-	return _paw
 
 
 ## What a right shoulder can do: the arm follows the leash strongly, but never further than

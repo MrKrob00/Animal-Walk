@@ -99,7 +99,8 @@ func _run() -> void:
 	Check.ok(down.hit and down.paw.y - paw_r > Terrain.height(down.paw.x, down.paw.z) - 0.005 and down.paw.y - paw_r < g + 0.03, "swept down, the paw stops on the ground")
 
 	# An obstacle right in front.
-	var ahead := tofu.position + tofu.global_basis.z.normalized() * 0.75
+	var ahead := _shoulder() + tofu.global_basis.z.normalized() * 0.52   # right in front of the paw's shoulder
+	ahead.y = tofu.position.y
 	main.obstacles.add(ahead.x, ahead.z, 0.15)
 	main.forced_paw = Vector2(0.0, 0.0)
 	var into := 99.0
@@ -107,7 +108,10 @@ func _run() -> void:
 		await physics_frame
 		var p := tofu.paw_center()
 		into = minf(into, Vector2(p.x - ahead.x, p.z - ahead.z).length() - 0.15 - paw_r)
-	Check.ok(into > -0.015, "a rock in front: the paw stops at it (%.1f cm clear)" % (into * 100))
+	Check.ok(into > -0.015, "a rock in front: the paw never goes into it (%.1f cm clear at worst)" % (into * 100))
+	var p_end := tofu.paw_center()
+	var rock_gap := Vector2(p_end.x - ahead.x, p_end.z - ahead.z).length() - 0.15 - paw_r
+	Check.ok(rock_gap < 0.012 and tofu.gait.paw_lying() > 0.9, "and lies on it, palm to the rock (%.1f cm off, lying %.2f)" % [rock_gap * 100, tofu.gait.paw_lying()])
 	main.forced_paw = Vector2.INF
 	main.obstacles = Obstacles.new()   # gone again
 	await _frames(40)
@@ -120,8 +124,18 @@ func _run() -> void:
 	var worst := 99.0
 	for i in 60:
 		await physics_frame
-		worst = minf(worst, _clear(tofu.paw_center(), paw_r, false))
-	Check.ok(worst > -0.015, "on her body the paw stops at the skin (%.1f cm clear at worst)" % (worst * 100))
+		worst = minf(worst, minf(_clear(tofu.paw_center(), paw_r, false), _clear(tofu.paw_center(), paw_r, true) + PawReach.SOFT_GIVE))
+	await process_frame
+	var tg: Gait = tofu.gait
+	var last := minf(_clear(tofu.paw_center(), paw_r, false), _clear(tofu.paw_center(), paw_r, true))
+	Check.ok(worst > -0.015, "on her body the paw never goes into her (%.1f cm clear at worst)" % (worst * 100))
+	Check.ok(last < 0.012, "it comes right up to her (the palm %.1f cm off her skin; it stopped 4-5 cm short)" % (last * 100))
+	var sk := tofu.skeleton
+	var h := sk.get_bone_global_pose(sk.find_bone("hand.R"))
+	var hy := (sk.global_transform.basis * h.basis.y).normalized()
+	var palm := (sk.global_transform.basis * (h.basis * tg._palm_local(sk.find_bone("hand.R"), "r"))).normalized()
+	Check.ok(tg.paw_lying() > 0.95 and palm.dot(-tg.paw_normal) > 0.85 and hy.dot(tg.paw_tan) > 0.9, "the palm lies on her: turned to her, the fingers along her (%.2f, %.2f)" % [palm.dot(-tg.paw_normal), hy.dot(tg.paw_tan)])
+	Check.ok(tg._curl > 0.05 and absf(tg._curl - Gait.FINGERS_REST) > 0.05, "the fingers curl round her (%.2f rad)" % tg._curl)
 	main.forced_paw = Vector2.INF
 	await _frames(60)
 	var tip0 := _tips()
@@ -144,7 +158,7 @@ func _run() -> void:
 				dented = true
 	Check.ok(soft_worst > -PawReach.SOFT_GIVE - 0.015, "on her chest the paw sinks in only a little (%.1f cm)" % (-soft_worst * 100))
 	Check.ok(touched > 10, "the paw is on her chest (%d frames of 50)" % touched)
-	Check.ok(moved > 0.008, "the chest is pushed (%.1f cm; 1.0-1.2 depending on frame timing)" % (moved * 100))
+	Check.ok(moved > 0.005, "the chest is pushed (%.1f cm; 0.7-1.2 depending on frame timing)" % (moved * 100))
 	Check.ok(dented, "and the skin gives under the paw (the shader gets it)")
 	main.forced_paw = Vector2.INF
 	var swing := 0.0

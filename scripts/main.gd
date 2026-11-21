@@ -250,7 +250,7 @@ func _physics_process(delta: float) -> void:
 	button.set_active(rules.held() or rules.can_pick(bunny.position))
 
 
-const SOFT_CORE := 0.045   ## the chest's tip keeps this far out of the paw's ball (its soft core)
+const SOFT_CORE := 0.050   ## the chest's tip keeps this far out of the paw's ball (its soft core; the ball sits 2.7 cm behind the palm now)
 var _paw_prev := Vector3.INF
 
 
@@ -284,11 +284,20 @@ func _paw(delta: float) -> void:
 		for c in _passage_caps:
 			shapes.append([c[0], c[1], c[2], false])
 		var r := PawReach.reach_free(sh, PawReach.direction(tofu, v), arm, float(paw.r), float(paw.off), shapes, obstacles)
-		tofu.gait.paw_off = float(paw.off)
+		tofu.gait.paw_palm = float(paw.off)
 		tofu.gait.paw_target = r.paw if not r.is_empty() else Vector3.INF
+		tofu.gait.paw_normal = r.normal if not r.is_empty() else Vector3.ZERO
+		tofu.gait.paw_tan = r.tan if not r.is_empty() else Vector3.FORWARD
+		tofu.gait.paw_curl = r.curl if not r.is_empty() else 0.0
 	else:
 		tofu.gait.paw_target = Vector3.INF
+		tofu.gait.paw_normal = Vector3.ZERO
+	# The ball her skin is pushed out of: lying on her, it sits behind the palm so its face is the
+	# palm's (a flat patch); in the air, round the palm.
 	var pc := tofu.paw_center()
+	var ball_r := float(paw.ball)
+	if pc != Vector3.INF:
+		pc += tofu.gait._lie_n * (ball_r - float(paw.r)) * tofu.gait.paw_lying()
 	# Her soft flesh under the paw: each region pressed moves out of the way (Gait.flesh_push).
 	var push := [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]
 	if tofu.gait.paw_out() > 0.01 and pc != Vector3.INF:
@@ -298,14 +307,14 @@ func _paw(delta: float) -> void:
 			var ab: Vector3 = s[1] - s[0]
 			var t := clampf((pc - s[0]).dot(ab) / maxf(ab.length_squared(), 1e-9), 0.0, 1.0)
 			var near: Vector3 = s[0] + ab * t
-			var depth := float(s[2]) + float(paw.r) - pc.distance_to(near)
+			var depth := float(s[2]) + ball_r - pc.distance_to(near)
 			if depth > 0.0 and pc.distance_to(near) > 1e-5:
 				push[s[4]] += (near - pc).normalized() * depth
 	bunny.gait.flesh_push = push
 	if tofu.gait.paw_out() > 0.01 and pc != Vector3.INF:
 		var vel := (pc - _paw_prev) / delta if _paw_prev != Vector3.INF else Vector3.ZERO
-		bunny.paw_touch = Vector4(pc.x, pc.y, pc.z, float(paw.r))
-		bunny.gait.soft_poke = Vector4(pc.x, pc.y, pc.z, float(paw.r) + SOFT_CORE)
+		bunny.paw_touch = Vector4(pc.x, pc.y, pc.z, ball_r)
+		bunny.gait.soft_poke = Vector4(pc.x, pc.y, pc.z, ball_r + SOFT_CORE)
 		bunny.gait.soft_poke_vel = vel
 		_paw_prev = pc
 	else:

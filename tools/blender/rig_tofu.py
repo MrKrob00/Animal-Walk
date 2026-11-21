@@ -49,6 +49,10 @@ for s, sx in (("L", 1), ("R", -1)):
         f"upper_arm.{s}": ((0.52 * sx, 0, 3.12), (0.60 * sx, 0, 2.45), "chest"),
         f"forearm.{s}": ((0.60 * sx, 0, 2.45), (0.63 * sx, 0, 1.78), f"upper_arm.{s}"),
         f"hand.{s}": ((0.63 * sx, 0, 1.78), (0.64 * sx, -0.02, 1.38), f"forearm.{s}"),
+        # The paw's four fingers bend together at the knuckle line, the thumb (the big bean at
+        # the front) on its own (the player asked for fingers that let the paw lie on things).
+        f"fingers.{s}": ((0.70 * sx, -0.03, 1.56), (0.72 * sx, -0.03, 1.40), f"hand.{s}"),
+        f"thumb.{s}": ((0.64 * sx, -0.17, 1.63), (0.675 * sx, -0.24, 1.47), f"hand.{s}"),
     })
 arm_data = bpy.data.armatures.new("TofuRig")
 arm = bpy.data.objects.new("TofuRig", arm_data)
@@ -112,6 +116,59 @@ for o in meshes:
         for (d, n), w in zip(ds, ws):
             o.vertex_groups[n].add([v.index], w / tot, 'REPLACE')
     print("weighted", o.name, "->", cands)
+
+# 3b. The paw: beans and claws ride their finger; the mitten bends below the knuckles.
+def smooth(a, b, x):
+    t = max(0.0, min(1.0, (x - a) / (b - a)))
+    return t * t * (3.0 - 2.0 * t)
+
+KNUCKLE_HI, KNUCKLE_LO = 1.62, 1.50   # the mitten turns from the hand to the fingers over these heights
+for o in meshes:
+    if not any(o.name.startswith(pre) for pre in ("FingersB", "Claws", "HandLeft")):
+        continue
+    import bmesh
+    bm = bmesh.new(); bm.from_mesh(o.data); bm.verts.ensure_lookup_table()
+    part = {}
+    for v in bm.verts:   # connected parts: a bean, a claw half, the mitten
+        if v.index in part: continue
+        stack = [v]; ids = [v.index]; part[v.index] = v.index
+        while stack:
+            x = stack.pop()
+            for e in x.link_edges:
+                y = e.other_vert(x)
+                if y.index not in part:
+                    part[y.index] = v.index; ids.append(y.index); stack.append(y)
+        cen = sum((o.data.vertices[i].co for i in ids), Vector()) / len(ids)
+        for i in ids:
+            part[i] = (cen, len(ids))
+    bm.free()
+    for v in o.data.vertices:
+        p = v.co
+        s_ = ".L" if p.x >= 0 else ".R"
+        cen, size = part[v.index]
+        thumbish = cen.y < -0.2
+        if o.name.startswith("FingersB") or o.name.startswith("Claws"):
+            if o.name.startswith("FingersB") and size > 200:
+                continue   # the palm's big bean stays on the hand
+            for g in o.vertex_groups:
+                g.remove([v.index])
+            o.vertex_groups[("thumb" if thumbish else "fingers") + s_].add([v.index], 1.0, 'REPLACE')
+            continue
+        if p.z > KNUCKLE_HI + 0.02 or size < 150:
+            continue   # the sleeve and the arm: as weighted
+        h = next((g.weight for g in v.groups if o.vertex_groups[g.group].name == "hand" + s_), 0.0)
+        if h <= 0.0:
+            continue
+        f = smooth(KNUCKLE_HI, KNUCKLE_LO, p.z)
+        t = smooth(-0.15, -0.21, p.y) * smooth(1.68, 1.58, p.z)
+        wf = h * f * (1.0 - t)
+        wt = h * t
+        o.vertex_groups["hand" + s_].add([v.index], h - wf - wt, 'REPLACE')
+        if wf > 0.0:
+            o.vertex_groups["fingers" + s_].add([v.index], wf, 'REPLACE')
+        if wt > 0.0:
+            o.vertex_groups["thumb" + s_].add([v.index], wt, 'REPLACE')
+    print("paw weighted", o.name)
 
 # 4. One mesh, skinned to the rig.
 bpy.ops.object.select_all(action='DESELECT')
