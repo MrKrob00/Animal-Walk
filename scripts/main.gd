@@ -26,6 +26,9 @@ var joystick: TouchJoystick
 var button: ActionButton
 var view_button: ViewButton
 var switch_button: SwitchButton
+var pause_button: PauseButton
+var pause_menu: PauseMenu      ## open while the game is paused
+var dressing_room: DressingRoom
 var arm_stick: ArmStick
 var sit_button: SitButton
 var jump_button: JumpButton
@@ -119,18 +122,23 @@ func _ready() -> void:
 	switch_button = SwitchButton.new()
 	ui.add_child(switch_button)
 	switch_button.pressed.connect(switch_character)
+	pause_button = PauseButton.new()
+	ui.add_child(pause_button)
+	pause_button.pressed.connect(pause)
 
 	camera_rig = CameraRig.new()
 	camera_rig.target = tofu
 	camera_rig.second = bunny
 	camera_rig.button = button
-	camera_rig.buttons = [view_button, switch_button, arm_stick, sit_button, jump_button]
+	camera_rig.buttons = [view_button, switch_button, arm_stick, sit_button, jump_button, pause_button]
 	camera_rig.stick_zone = TouchJoystick.ZONE
 	add_child(camera_rig)
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("act"):
+	if event.is_action_pressed("pause"):
+		pause()
+	elif event.is_action_pressed("act"):
 		act()
 	elif event.is_action_pressed("view"):
 		toggle_view()
@@ -140,6 +148,53 @@ func _unhandled_input(event: InputEvent) -> void:
 		sit_toggle()
 	elif event.is_action_pressed("jump"):
 		jump()
+
+
+## The pause button (the player asked): the game stops and the pause menu opens; from it the
+## dressing room ("Костюмы"). The sticks and the camera let go of their fingers.
+func pause() -> void:
+	if pause_menu != null or dressing_room != null:
+		return
+	joystick.release()
+	arm_stick.release()
+	camera_rig.release()
+	get_tree().paused = true
+	pause_menu = PauseMenu.new()
+	add_child(pause_menu)
+	pause_menu.closed.connect(resume)
+	pause_menu.costumes.connect(open_dressing_room)
+
+
+func resume() -> void:
+	if pause_menu != null:
+		pause_menu.queue_free()
+		pause_menu = null
+	if dressing_room != null:
+		dressing_room.queue_free()
+		dressing_room = null
+	joystick.release()
+	arm_stick.release()
+	camera_rig.release()
+	get_tree().paused = false
+
+
+## The dressing room over the pause menu; "Готово" puts the choice on the bunny and goes back
+## to the menu.
+func open_dressing_room() -> void:
+	if dressing_room != null:
+		return
+	pause_menu.visible = false
+	dressing_room = DressingRoom.new()
+	add_child(dressing_room)
+	dressing_room.done.connect(_dressed)
+
+
+func _dressed(choice: Dictionary) -> void:
+	bunny.set_outfit(choice)
+	dressing_room.queue_free()
+	dressing_room = null
+	if pause_menu != null:
+		pause_menu.visible = true
 
 
 ## The jump button: the one you steer jumps (the bunny a hare's hop, TOFU its "surprise!" leap
@@ -525,6 +580,7 @@ func _setup_input() -> void:
 		"view": [KEY_V],
 		"switch": [KEY_TAB],
 		"sit": [KEY_C],
+		"pause": [KEY_ESCAPE, KEY_P],
 		"paw_left": [KEY_J],
 		"paw_right": [KEY_L],
 		"paw_up": [KEY_I],
