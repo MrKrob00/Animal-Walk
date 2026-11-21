@@ -172,6 +172,20 @@ func _run() -> void:
 	Check.ok(prev < 0.006, "let go, it settles back (%.1f mm off)" % (prev * 1000))
 	Check.ok(swing > moved * 1.2, "swinging on a little on the way (%.1f cm travelled)" % (swing * 100))
 
+	# Crawling under a trunk, the paw still reaches (the player asked).
+	var pass_: Dictionary = main.passages[0]
+	var c: Vector2 = pass_.c
+	tofu.position = Vector3(c.x, Terrain.height(c.x, c.y), c.y)
+	bunny.position = tofu.position + Vector3(2.0, 0, 0)
+	main.forced_paw = Vector2.INF
+	await _frames(80)
+	Check.ok(tofu.gait.crawl > 0.9, "under the trunk TOFU crawls")
+	main.forced_paw = Vector2(0.3, -0.4)
+	await _frames(60)
+	Check.ok(tofu.gait.paw_out() > 0.9 and tofu.paw_center().distance_to(_shoulder()) > 0.3, "crawling, the paw stick still reaches out (%.2f m)" % tofu.paw_center().distance_to(_shoulder()))
+	main.forced_paw = Vector2.INF
+	await _frames(40)
+
 	# Steering the bunny: no paw stick.
 	main.switch_character()
 	main.forced_paw = Vector2(0.5, -0.5)

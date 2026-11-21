@@ -81,7 +81,71 @@ func _run() -> void:
 			a.animate(1.0 / 60.0, 0.0)
 		Check.ok(head.call() > standing * 0.95, "%s stands up again after (head %.2f m up, %.2f before)" % [name, head.call(), standing])
 		a.queue_free()
+	await _slope()
 	Check.finish(self)
+
+
+## On the beach slope, crawling uphill in the game: her skin is squeezed onto the real ground
+## (it sank 6 cm into the sand when the ground was taken as level at her feet).
+func _slope() -> void:
+	var main = load("res://scenes/main.tscn").instantiate()
+	root.add_child(main)
+	await process_frame
+	main.set_physics_process(false)
+	var a: Actor = main.bunny
+	a.set_process(false)
+	var start := WorldBuilder.clearing_center()
+	var best := Vector2.ZERO
+	var best_s := 0.0
+	for i in 400:
+		var ang := float(i) / 400.0 * TAU
+		var p := start + Vector2(cos(ang), sin(ang)) * (2.0 + (i % 7))
+		var n := Terrain.normal(p.x, p.y)
+		if Terrain.height(p.x, p.y) > 0.2 and 1.0 - n.y > best_s:
+			best_s = 1.0 - n.y
+			best = p
+	var n := Terrain.normal(best.x, best.y)
+	a.position = Vector3(best.x, Terrain.height(best.x, best.y), best.y)
+	var uphill := -Vector3(n.x, 0, n.z).normalized()
+	a.rotation.y = atan2(uphill.x, uphill.z)
+	a.gait.crawling = true
+	var worst := 0.0
+	for i in 150:
+		a.animate(1.0 / 60.0, 0.0)
+		if i > 100 and i % 10 == 0:
+			worst = maxf(worst, _deepest_real(a, n))
+	Check.ok(worst < 0.025, "on the beach slope (%.0f degrees), crawling uphill, nothing goes into the sand (%.1f cm)" % [rad_to_deg(acos(n.y)), worst * 100])
+	main.queue_free()
+
+
+func _deepest_real(a: Actor, n: Vector3) -> float:
+	var sk := a.skeleton
+	var worst := 0.0
+	for mi in a.find_children("*", "MeshInstance3D", true, false):
+		var m: MeshInstance3D = mi
+		if m.skin == null or not m.visible:
+			continue
+		var arr := m.mesh.surface_get_arrays(0)
+		var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var b: PackedInt32Array = arr[Mesh.ARRAY_BONES]
+		var w: PackedFloat32Array = arr[Mesh.ARRAY_WEIGHTS]
+		var per := b.size() / v.size()
+		var mats := {}
+		for k in m.skin.get_bind_count():
+			var bone := m.skin.get_bind_bone(k)
+			if bone < 0:
+				bone = sk.find_bone(m.skin.get_bind_name(k))
+			if bone >= 0:
+				mats[k] = sk.global_transform * sk.get_bone_global_pose(bone) * m.skin.get_bind_pose(k)
+		for j in range(0, v.size(), 3):
+			var p := Vector3.ZERO
+			for k in per:
+				var wt := w[j * per + k]
+				if wt > 0.0 and mats.has(b[j * per + k]):
+					p += (mats[b[j * per + k]] * v[j]) * wt
+			p = SoftPress.squash(p, a.global_position, n)
+			worst = maxf(worst, Terrain.height(p.x, p.z) - p.y)
+	return worst
 
 
 ## How far the deepest skin point is under the ground (metres; 0 when none is).

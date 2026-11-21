@@ -30,6 +30,7 @@ static func build(actor: Node3D, skel: Skeleton3D, cfg: Dictionary) -> HairSprin
 	if m == null or head < 0:
 		return null
 	var scale := skel.global_transform.basis.get_scale().x   # metres per skeleton unit
+	m.skin = m.skin.duplicate()   # her own: the file's skin is shared by every copy of her (the dressing room's too)
 	var arr: Array = m.mesh.surface_get_arrays(0)
 	var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
 	var bb: PackedInt32Array = arr[Mesh.ARRAY_BONES]

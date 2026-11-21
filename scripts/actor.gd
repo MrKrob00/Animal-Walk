@@ -414,6 +414,7 @@ func _process(delta: float) -> void:
 ## Poses the body for this frame at `spd` m/s (also used by the view tools).
 func animate(delta: float, spd: float) -> void:
 	gait.lean = lerpf(gait.lean, extra_lean, 1.0 - exp(-6.0 * delta))
+	gait._on_island = world != null
 	var landed := gait.update(delta, spd)
 	body.position = gait.body_offset(float(data.height))
 	if skeleton != null:
@@ -439,7 +440,8 @@ func animate(delta: float, spd: float) -> void:
 	if not _press.is_empty():
 		var k := smoothstep(0.0, 1.0, gait.crawl)
 		for m in _press:
-			m.set_shader_parameter("floor_y", global_position.y)
+			m.set_shader_parameter("floor_p", global_position)
+			m.set_shader_parameter("floor_n", Terrain.normal(global_position.x, global_position.z) if world != null else Vector3.UP)
 			m.set_shader_parameter("press", maxf(k, smoothstep(0.0, 1.0, gait.sit)))   # sitting, her butt and thighs give against the ground too
 			m.set_shader_parameter("paw", paw_touch)
 			if not _flesh_regions.is_empty():

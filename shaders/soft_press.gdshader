@@ -10,7 +10,8 @@ render_mode cull_disabled, unshaded;   // as her own material
 
 uniform sampler2D albedo_tex : source_color, filter_linear_mipmap, repeat_enable;
 uniform vec4 albedo : source_color = vec4(1.0);
-uniform float floor_y = -1000.0;   // the ground under the character, world metres
+uniform vec3 floor_p = vec3(0.0, -1000.0, 0.0);   // the ground under the character: a point on it (world metres)
+uniform vec3 floor_n = vec3(0.0, 1.0, 0.0);       // ... and its normal: tilted with the slope (level, she sank into the sand uphill)
 uniform float press = 0.0;         // 0..1: how much it gives (lying down)
 uniform float band = 0.05;         // metres above the ground where the giving starts
 uniform float bulge = 0.5;         // sideways spread per metre squeezed up
@@ -32,14 +33,14 @@ void vertex() {
 				moved = true;
 			}
 		}
-		float top = floor_y + band;
-		float d = top - w.y;
+		float s = dot(w - floor_p, floor_n);   // height over the ground plane
+		float d = band - s;
 		if (press > 0.001 && d > 0.0) {
-			float y2 = top - band * (1.0 - exp(-d / band));
-			float up = (y2 - w.y) * press;
+			float s2 = band - band * (1.0 - exp(-d / band));
+			float up = (s2 - s) * press;
 			vec3 n = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
-			w.y += up;
-			w.xz += n.xz * up * bulge;
+			vec3 side = n - floor_n * dot(n, floor_n);   // spread along the ground
+			w += floor_n * up + side * up * bulge;
 			moved = true;
 		}
 		if (paw.w > 0.0) {

@@ -39,6 +39,19 @@ static func squash_y(y: float, floor_y: float, band := BAND) -> float:
 	return top - band * (1.0 - exp(-d / band))
 
 
+## Where the shader puts a point `p` (world) over the ground plane through `p0` with normal `n`
+## (fully pressed): squeezed up along `n` onto the plane, the deeper the more, within `band`.
+## The ground is a plane under her, tilted with the slope (level, on a slope she went into the
+## sand on its high side: the player saw her chest sink).
+static func squash(p: Vector3, p0: Vector3, n: Vector3, band := BAND) -> Vector3:
+	var s := (p - p0).dot(n)
+	var d := band - s
+	if d <= 0.0:
+		return p
+	var s2 := band - band * (1.0 - exp(-d / band))
+	return p + n * (s2 - s)
+
+
 const PAW_BAND := 0.02
 
 

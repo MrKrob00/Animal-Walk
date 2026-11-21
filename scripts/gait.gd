@@ -476,7 +476,7 @@ func _soft_parts(delta: float) -> void:
 		x = anchor + lag * SOFT_GAIN
 		# Lying on the forearms, the chest never sinks into the ground.
 		if crawl > 0.01 and _body != null and _body.get_parent() is Node3D:
-			var floor_y := (_body.get_parent() as Node3D).global_position.y + SOFT_FLOOR * _height_hint
+			var floor_y := (Terrain.height(x.x, x.z) if _on_island else (_body.get_parent() as Node3D).global_position.y) + SOFT_FLOOR * _height_hint   # the ground right under it (a slope)
 			if x.y < floor_y:
 				x.y = floor_y
 		var base := (to_sk * (anchor - motion_fix)) - g_root.origin   # back where the skeleton is now
@@ -648,6 +648,11 @@ func _look_yaw() -> float:
 ## hands tip up off it. Sizes are shares of the height (limb thickness).
 const CRAWL_FLOOR := {"hand": 0.025, "elbow": 0.035, "foot": 0.035, "knee": 0.035, "tip": 0.012}
 
+## Standing on the island (the ground is Terrain's; set by the actor); a lone actor in a tool or
+## test stands on a level floor at its feet.
+var _on_island := false
+
+
 func _crawl_ground() -> void:
 	var k := smoothstep(0.0, 1.0, crawl)
 	if k < 0.01 or _body == null or not (_body.get_parent() is Node3D):
@@ -679,11 +684,13 @@ func _crawl_ground() -> void:
 		# Continuous: lifted exactly as far as it would sink, the knee / elbow kept where it is
 		# otherwise (switched on at the floor with the knee pushed 2% of her height up, it popped
 		# 11 cm in a frame each time a leg started to draw up: the player saw the legs jerk).
-		if E.y < floor_y + r_end or M.y < floor_y + r_mid:
+		var ge := Terrain.height(E.x, E.z) if _on_island else floor_y   # the ground right under each (a slope)
+		var gm := Terrain.height(M.x, M.z) if _on_island else floor_y
+		if E.y < ge + r_end or M.y < gm + r_mid:
 			var l1 := S.distance_to(M)
 			var l2 := M.distance_to(E)
-			var E2 := Vector3(E.x, maxf(E.y, floor_y + r_end), E.z)
-			var pole := Vector3(M.x, maxf(M.y, floor_y + r_mid), M.z)
+			var E2 := Vector3(E.x, maxf(E.y, ge + r_end), E.z)
+			var pole := Vector3(M.x, maxf(M.y, gm + r_mid), M.z)
 			var d := clampf(S.distance_to(E2), absf(l1 - l2) + 1e-4, l1 + l2 - 1e-4)
 			var along := (E2 - S).normalized()
 			var side := pole - S
@@ -706,7 +713,7 @@ func _crawl_ground() -> void:
 		if tip >= 0:
 			var E4: Vector3 = at.call(e)
 			var T: Vector3 = at.call(tip)
-			var lo := floor_y + CRAWL_FLOOR["tip"] * h
+			var lo := (Terrain.height(T.x, T.z) if _on_island else floor_y) + CRAWL_FLOOR["tip"] * h
 			if T.y < lo:
 				var want := Vector3(T.x, lo, T.z) - E4
 				turn.call(e, _arc((T - E4).normalized(), want.normalized()))
@@ -1156,13 +1163,13 @@ var _finger_axes := {}           ## bone -> its curl axis (local)
 
 
 func _paw_reach(delta: float) -> void:
-	_paw = move_toward(_paw, 1.0 if paw_target != Vector3.INF and crawl < 0.05 else 0.0, delta * PAW_EASE)
+	_paw = move_toward(_paw, 1.0 if paw_target != Vector3.INF else 0.0, delta * PAW_EASE)   # crawling too (the player asked): the arm leaves the crawl to reach
 	_lie = move_toward(_lie, 1.0 if paw_normal != Vector3.ZERO and paw_target != Vector3.INF else 0.0, delta * PAW_LIE)
 	if paw_normal != Vector3.ZERO:
 		_lie_n = paw_normal.normalized()
 		_lie_t = paw_tan.normalized()
 	var flat := 1.0 - smoothstep(0.0, 1.0, crawl)   # crawling, the paws lie flat on the ground
-	var want_curl := lerpf(FINGERS_REST, paw_curl, _lie * _paw) * flat
+	var want_curl := lerpf(FINGERS_REST * flat, paw_curl, _lie * _paw)
 	_curl = lerpf(_curl, want_curl, 1.0 - exp(-10.0 * delta))
 	_curl_fingers("r", _curl)
 	_curl_fingers("l", FINGERS_REST * flat)
