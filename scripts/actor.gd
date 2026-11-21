@@ -10,7 +10,8 @@ signal footstep(pos: Vector3, size: float)
 ## arms, head, chest and fingers are re-hung under the spine and the hands ("reparent").
 const BUNNY := {
 	# Her T-posed model with a clean skeleton (tools/tpose_bunny.gd makes it from the Sketchfab file).
-	"path": "res://assets/chobby_tpose.glb", "height": 1.6, "sole": 0.032,
+	"path": "res://scenes/bunny.tscn", "height": 1.6, "sole": 0.032,   # her model and her clothes (Wardrobe), editable
+	"wardrobe": true,
 	"jump": "hop",   # the jump button: a hare's hop (Gait.JUMP)
 	"sit": "w",   # the sit button: her "frog" W-sit (the player chose it; Gait.SIT)
 	"soft_press": true,   # lying down, her chest, belly and thighs give against the ground (per vertex)
@@ -20,7 +21,7 @@ const BUNNY := {
 		["DEF-head", Vector3(0, 0.11, 0.0), 0.085], ["DEF-head", Vector3(0, 0.06, 0.06), 0.07], ["DEF-neck", Vector3(0, 0.04, 0), 0.05],
 		["DEF-upper_arm.L", Vector3.ZERO, 0.06], ["DEF-upper_arm.R", Vector3.ZERO, 0.06],
 		["DEF-spine.003", Vector3(0, 0.06, -0.03), 0.10]]},
-	"flesh": ["Object_11", "Object_672"],   # her butt, thighs and belly are soft and springy (SoftFlesh; the player asked): skin and shorts
+	"flesh": ["Object_11", "Object_672", "Sundress", "Blouse"],   # what she wears over the soft parts moves with them   # her butt, thighs and belly are soft and springy (SoftFlesh; the player asked): skin and shorts
 	"eye": Vector3(0, 0.10, 0.125),   # first person: from her head bone (measured on her face)
 	"walk": 1.5, "run": 3.4, "stride": 1.45, "run_stride": 2.5, "radius": 0.3,
 	# Her top and shorts take the skin's bone weights, so no gap opens when the chest moves.
@@ -164,6 +165,8 @@ func _ready() -> void:
 			mi.visible = false
 	for ap in scene.find_children("*", "AnimationPlayer", true, false):
 		ap.stop()   # files may carry a broken showcase clip; Gait drives the bones
+	if data.get("wardrobe", false):
+		_dress(scene)
 	if data.has("cloth"):
 		var skin_mi: MeshInstance3D = scene.find_child(data.cloth.body, true, false)
 		for n in data.cloth.items:
@@ -195,6 +198,23 @@ func _ready() -> void:
 			gait.set_flesh(_flesh_regions)
 		if data.has("hair"):
 			hair = HairRig.build(self, skeleton, data.hair)
+
+
+## Her clothes from the wardrobe: Agnes' fitted ones get her skin (the scene keeps them unskinned
+## for the editor), then the player's choice is shown.
+func _dress(scene: Node) -> void:
+	var body: MeshInstance3D = scene.find_child(data.hair.mesh, true, false) if data.has("hair") else null
+	for k in Wardrobe.ITEMS:
+		var n := scene.find_child(Wardrobe.ITEMS[k].node, true, false)
+		if n is MeshInstance3D and (n as MeshInstance3D).skin == null and body != null:
+			(n as MeshInstance3D).skin = body.skin
+			(n as MeshInstance3D).skeleton = NodePath("..")
+	Wardrobe.apply(scene, Wardrobe.load_choice())
+
+
+## Puts on `choice` (slot -> item; Wardrobe).
+func set_outfit(choice: Dictionary) -> void:
+	Wardrobe.apply(_model, choice)
 
 
 ## Scale to `height` metres by the deform bones (+10% for the head above the top bone),

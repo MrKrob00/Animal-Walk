@@ -22,3 +22,5 @@ All models are used under Creative Commons Attribution 4.0 (CC BY 4.0): https://
 The army crawl (`assets/anim/crawl.res`) is made for this project on the Universal Animation Library's skeleton.
 
 Everything else (terrain, trees, rocks, stake, shaders, code) is made for this project.
+
+- Agnes (a girl model with Mixamo rig): given to the player privately by its author for this project (no public licence). Only her blouse and sundress are used, refitted to the bunny (`assets/outfits/agnes/`).

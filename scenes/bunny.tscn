@@ -1,0 +1,19 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/chobby_tpose.glb" id="model"]
+[ext_resource type="ArrayMesh" path="res://assets/outfits/agnes/blouse.res" id="blouse"]
+[ext_resource type="ArrayMesh" path="res://assets/outfits/agnes/sundress.res" id="sundress"]
+
+[node name="Bunny" type="Node3D"]
+
+[node name="ChobbyBun" parent="." instance=ExtResource("model")]
+
+[node name="Blouse" type="MeshInstance3D" parent="ChobbyBun/Skeleton3D"]
+visible = false
+mesh = ExtResource("blouse")
+
+[node name="Sundress" type="MeshInstance3D" parent="ChobbyBun/Skeleton3D"]
+visible = false
+mesh = ExtResource("sundress")
+
+[editable path="ChobbyBun"]

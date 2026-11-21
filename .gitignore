@@ -2,3 +2,9 @@
 *.tmp
 /android/
 /export/
+
+# Textures Godot pulls out of assets/agnes.glb on import (4K, ~70 MB; made again from the file)
+assets/agnes_*.jpg
+assets/agnes_*.png
+assets/agnes_*.jpg.import
+assets/agnes_*.png.import
