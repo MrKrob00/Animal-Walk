@@ -3,10 +3,9 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://xmpcfse73wom"
-path.s3tc="res://.godot/imported/tofu_stylized_3d_fox_character_2.png-e19f4168c7eb0c3421a39906db7a1fe9.s3tc.ctex"
 path.etc2="res://.godot/imported/tofu_stylized_3d_fox_character_2.png-e19f4168c7eb0c3421a39906db7a1fe9.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"imported_formats": ["etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -16,7 +15,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/tofu_stylized_3d_fox_character_2.png"
-dest_files=["res://.godot/imported/tofu_stylized_3d_fox_character_2.png-e19f4168c7eb0c3421a39906db7a1fe9.s3tc.ctex", "res://.godot/imported/tofu_stylized_3d_fox_character_2.png-e19f4168c7eb0c3421a39906db7a1fe9.etc2.ctex"]
+dest_files=["res://.godot/imported/tofu_stylized_3d_fox_character_2.png-e19f4168c7eb0c3421a39906db7a1fe9.etc2.ctex"]
 
 [params]
 

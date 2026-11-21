@@ -3,10 +3,9 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://boh0li8a15dij"
-path.s3tc="res://.godot/imported/farmer_dog_0.png-cd24f82d14ad57428504991dc95290ab.s3tc.ctex"
 path.etc2="res://.godot/imported/farmer_dog_0.png-cd24f82d14ad57428504991dc95290ab.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"imported_formats": ["etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -16,7 +15,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/farmer_dog_0.png"
-dest_files=["res://.godot/imported/farmer_dog_0.png-cd24f82d14ad57428504991dc95290ab.s3tc.ctex", "res://.godot/imported/farmer_dog_0.png-cd24f82d14ad57428504991dc95290ab.etc2.ctex"]
+dest_files=["res://.godot/imported/farmer_dog_0.png-cd24f82d14ad57428504991dc95290ab.etc2.ctex"]
 
 [params]
 
