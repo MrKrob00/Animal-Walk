@@ -18,8 +18,6 @@ extends RefCounted
 
 const HAIR_SHARE := 0.9     ## an island this much hair-red is hair
 const MIN_VERTS := 100      ## smaller red islands are brows, lashes and the like
-const WIDE := 0.15          ## metres: a wider island is cut into left and right chains
-const CAP_HIGH := 0.17      ## an island all above this over the head bone is the scalp cap (rigid)
 const SKULL := Vector3(0.0, 0.12, 0.0)   ## the skull's middle from the head bone (metres)
 
 
@@ -41,56 +39,15 @@ static func build(actor: Node3D, skel: Skeleton3D, cfg: Dictionary) -> HairSprin
 	var head_rest := skel.get_bone_global_rest(head)
 	var islands := _hair_islands(m, arr, per, head_bind)
 	var skull := head_rest.origin + head_rest.basis.orthonormalized() * (SKULL / scale)
-	var side_axis := Vector3.RIGHT   # the skeleton's own: she faces +Z, her left is +X
-	var chains := []   # [{verts, root, mid, tip}]
+	var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX]
+	var chains := []   # [{island, root, mid, tip}]
+	var island_chains := []   # per island: the chains' indices
 	for isl in islands:
-		var pts := []
-		var lo := INF
-		var w_min := INF
-		var w_max := -INF
-		for v in isl:
-			var p: Vector3 = to_sk * vs[v]
-			pts.append(p)
-			lo = minf(lo, (p - head_rest.origin).y * scale)
-			w_min = minf(w_min, p.dot(side_axis))
-			w_max = maxf(w_max, p.dot(side_axis))
-		if lo > CAP_HIGH:
-			continue   # the scalp cap
-		var groups := [isl]
-		if (w_max - w_min) * scale > WIDE:
-			var left := []
-			var right := []
-			for v in isl:
-				if (to_sk * vs[v]).dot(side_axis) >= (skull.dot(side_axis)):
-					left.append(v)
-				else:
-					right.append(v)
-			groups = [left, right]
-		for g in groups:
-			if g.size() < 20:
-				continue
-			var near: Vector3 = to_sk * vs[g[0]]
-			var far: Vector3 = near
-			for v in g:
-				var p: Vector3 = to_sk * vs[v]
-				if p.distance_to(skull) < near.distance_to(skull):
-					near = p
-				if p.distance_to(skull) > far.distance_to(skull):
-					far = p
-			if near.distance_to(far) * scale < 0.04:
-				continue
-			# The middle joint: the strand's middle, where it is halfway from root to tip.
-			var mid := Vector3.ZERO
-			var n := 0
-			var axis := far - near
-			for v in g:
-				var p: Vector3 = to_sk * vs[v]
-				var t := (p - near).dot(axis) / axis.length_squared()
-				if absf(t - 0.5) < 0.12:
-					mid += p
-					n += 1
-			mid = mid / n if n > 0 else near.lerp(far, 0.5)
-			chains.append({"verts": g, "root": near, "mid": mid, "tip": far})
+		var mine := []
+		for sp in _spikes(isl, vs, idx, to_sk, skull, scale):
+			mine.append(chains.size())
+			chains.append(sp)
+		island_chains.append(mine)
 	# Bones: root -> mid -> tip under the head, each turned so its Y points along the strand.
 	var bones := []
 	for c in chains.size():
@@ -111,20 +68,50 @@ static func build(actor: Node3D, skel: Skeleton3D, cfg: Dictionary) -> HairSprin
 			parent = b
 			parent_global = g
 		bones.append(ids)
-	# Weights along each strand: the head at the root, then its two bones.
-	for c in chains.size():
-		var ch: Dictionary = chains[c]
-		var axis: Vector3 = ch.tip - ch.root
-		for v in ch.verts:
+	# Weights: each hair vertex follows the nearest one or two of its island's strands (so the
+	# strands of one piece swing apart, blending smoothly between), from the head at the root to
+	# the strand's two bones along it.
+	for i in islands.size():
+		var mine: Array = island_chains[i]
+		if mine.is_empty():
+			continue
+		for v in islands[i]:
 			var p: Vector3 = to_sk * vs[v]
-			var t := clampf((p - ch.root).dot(axis) / axis.length_squared(), 0.0, 1.0)
-			var s := smoothstep(0.05, 0.4, t)
-			var u := smoothstep(0.4, 0.8, t)
-			var ws := [1.0 - s, s * (1.0 - u), s * u]
-			var bs := [head_bind, bones[c][0][1], bones[c][1][1]]
+			var near := []   # [distance, chain, t]
+			for c in mine:
+				var ch: Dictionary = chains[c]
+				var d1 := _seg_t(p, ch.root, ch.mid)
+				var d2 := _seg_t(p, ch.mid, ch.tip)
+				var d: float
+				var t: float
+				if d1[0] <= d2[0]:
+					d = d1[0]
+					t = d1[1] * 0.5
+				else:
+					d = d2[0]
+					t = 0.5 + d2[1] * 0.5
+				near.append([d, c, t])
+			near.sort_custom(func(x, y): return x[0] < y[0])
+			var mix := {}
+			var use := near.slice(0, 2)
+			var tot := 0.0
+			for n in use:
+				tot += 1.0 / maxf(n[0] * n[0], 1e-6)
+			for n in use:
+				var a := (1.0 / maxf(n[0] * n[0], 1e-6)) / tot
+				var s_ := smoothstep(0.05, 0.4, n[2])
+				var u := smoothstep(0.4, 0.8, n[2])
+				mix[head_bind] = mix.get(head_bind, 0.0) + a * (1.0 - s_)
+				mix[bones[n[1]][0][1]] = mix.get(bones[n[1]][0][1], 0.0) + a * s_ * (1.0 - u)
+				mix[bones[n[1]][1][1]] = mix.get(bones[n[1]][1][1], 0.0) + a * s_ * u
+			var order := mix.keys()
+			order.sort_custom(func(x, y): return mix[x] > mix[y])
+			var kept := 0.0
+			for k in mini(per, order.size()):
+				kept += mix[order[k]]
 			for k in per:
-				bb[v * per + k] = bs[k] if k < 3 else 0
-				ww[v * per + k] = ws[k] if k < 3 else 0.0
+				bb[v * per + k] = order[k] if k < order.size() else 0
+				ww[v * per + k] = mix[order[k]] / kept if k < order.size() and kept > 0.0 else 0.0
 	arr[Mesh.ARRAY_BONES] = bb
 	arr[Mesh.ARRAY_WEIGHTS] = ww
 	var mesh := ArrayMesh.new()
@@ -139,6 +126,79 @@ static func build(actor: Node3D, skel: Skeleton3D, cfg: Dictionary) -> HairSprin
 	for ch in bones:
 		ids.append(ch.map(func(x): return x[0]))
 	return HairSprings.new(skel, ids, cfg.get("spheres", []))
+
+
+## Chains across a hair piece, like the sticks in a rigged hairdo the player showed: one every
+## SPACING metres round the head (by the angle about the skull's upright axis), each from the
+## piece's top (nearest the skull) to its tip (furthest) within its slice. Her hair is ~15 shells
+## that are mostly one strand each, but wide: one chain per piece swung it as a stiff plate.
+const SPACING := 0.045     ## metres between chains round the head
+const MAX_PER := 5
+static func _spikes(isl: Array, vs: PackedVector3Array, idx: PackedInt32Array, to_sk: Transform3D, skull: Vector3, scale: float) -> Array:
+	var h := {}
+	var ang := {}
+	var lo := INF
+	var hi := -INF
+	var mean := Vector2.ZERO
+	for v in isl:
+		var p: Vector3 = to_sk * vs[v]
+		h[v] = p.distance_to(skull)
+		lo = minf(lo, h[v])
+		hi = maxf(hi, h[v])
+		mean += Vector2(p.x - skull.x, p.z - skull.z).normalized()
+	if (hi - lo) * scale < 0.04:
+		return []   # no length from the scalp: the cap
+	var a0 := mean.angle()
+	var a_lo := INF
+	var a_hi := -INF
+	var rad := 0.0
+	for v in isl:
+		var p: Vector3 = to_sk * vs[v]
+		var d := Vector2(p.x - skull.x, p.z - skull.z)
+		ang[v] = angle_difference(a0, d.angle())
+		a_lo = minf(a_lo, ang[v])
+		a_hi = maxf(a_hi, ang[v])
+		rad += d.length() / isl.size()
+	var width := (a_hi - a_lo) * rad * scale
+	var n := clampi(roundi(width / SPACING), 1, MAX_PER)
+	var out := []
+	for k in n:
+		var c := lerpf(a_lo, a_hi, (k + 0.5) / n)
+		var half := (a_hi - a_lo) / n * 0.5
+		var slice := []
+		for v in isl:
+			if absf(ang[v] - c) <= half + 1e-4:
+				slice.append(v)
+		if slice.size() < 6:
+			continue
+		var root_v: int = slice[0]
+		var tip_v: int = slice[0]
+		for v in slice:
+			if h[v] < h[root_v]:
+				root_v = v
+			if h[v] > h[tip_v]:
+				tip_v = v
+		var root: Vector3 = to_sk * vs[root_v]
+		var tip: Vector3 = to_sk * vs[tip_v]
+		if root.distance_to(tip) * scale < 0.035:
+			continue
+		var mid := Vector3.ZERO
+		var m := 0
+		for v in slice:
+			var st := _seg_t(to_sk * vs[v], root, tip)
+			if absf(st[1] - 0.5) < 0.15:
+				mid += to_sk * vs[v]
+				m += 1
+		mid = mid / m if m > 0 else root.lerp(tip, 0.5)
+		out.append({"root": root, "mid": mid, "tip": tip})
+	return out
+
+
+## [distance from `p` to the segment a-b, how far along it (0..1)].
+static func _seg_t(p: Vector3, a: Vector3, b: Vector3) -> Array:
+	var ab := b - a
+	var t := clampf((p - a).dot(ab) / maxf(ab.length_squared(), 1e-12), 0.0, 1.0)
+	return [p.distance_to(a + ab * t), t]
 
 
 static func _bind_of(skin: Skin, skel: Skeleton3D, bone: int) -> int:
