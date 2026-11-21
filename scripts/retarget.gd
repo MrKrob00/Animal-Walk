@@ -155,6 +155,22 @@ func weights(speed: float) -> Dictionary:
 	return w
 
 
+var _crawl_mid := INF
+
+
+## The crawl's hips height in the middle of its rise and fall (source units).
+func _crawl_hips_mid() -> float:
+	if _crawl_mid == INF:
+		var hs := []
+		if src.clips.has("Crawl_Fwd"):
+			var anim: Animation = src.clips["Crawl_Fwd"]
+			for k in 24:
+				var s := src.sample([["Crawl_Fwd", anim.length * k / 24.0, 1.0]])
+				hs.append(src.globals(s[0], s[1])[_hips_src].origin.y)
+		_crawl_mid = (hs.max() + hs.min()) * 0.5 if not hs.is_empty() else _hips_rest.y
+	return _crawl_mid
+
+
 ## Advances the clips by `delta` at `speed` and poses our bones. Returns the body offset
 ## (character space, metres) and whether a foot landed: [Vector3, int].
 func apply(delta: float, speed: float) -> Array:
@@ -199,7 +215,12 @@ func apply(delta: float, speed: float) -> Array:
 			par_rot = Quaternion.IDENTITY
 		skel.set_bone_pose_rotation(d, (par_rot.inverse() * want).normalized())
 		done[d] = want
+	# The hips scale by hip height; but the crawl's rise and fall round its own middle scales by
+	# the body's size (her rabbit legs put her hips low, which shrank the hips' lift as each knee
+	# draws up by a third: the player found it weak).
 	var hips_off := (g[_hips_src].origin - _hips_rest) * scale
+	if crawl > 0.0:
+		hips_off.y += (g[_hips_src].origin.y - _crawl_hips_mid()) * (height / SRC_HEIGHT - scale) * crawl
 	var landed := 0
 	if wsum > 0.001 and crawl < 0.5:   # no footprints while crawling
 		if before > phase:

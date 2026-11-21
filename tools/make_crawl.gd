@@ -17,14 +17,16 @@ const STRIDE := 0.64        ## metres the body moves per cycle (clip's own size)
 const HIPS_Y := 0.16        ## hips above the ground, lying
 const ARCH := [0.10, 0.16, 0.18]   ## spine.001-.003 bent up (chest on the forearms), radians
 const HEAD_UP := [0.45, 0.5]       ## neck, head lifted to look ahead
-const HIP_ROLL := 0.22      ## radians the pelvis rolls: the side whose knee draws up lifts, the weight
+const HIP_ROLL := 0.32      ## radians the pelvis rolls: the side whose knee draws up lifts, the weight
                             ## goes onto the other hip (the player asked to study the hips: 0.07, and a
                             ## quarter cycle late, read as stiff)
 const CHEST_KEEP := 0.6     ## share of that roll the ribcage turns back (the shoulders stay level)
 const STRAIGHT := 0.93      ## a limb reaches at most this share of its length (the knee stays bent)
-const HIP_LIFT := 0.03      ## the pelvis rises this much as a knee draws up (the player: the butt was
-                            ## pressed down; crawling, the weight shifts from hip to hip and the
-                            ## drawn-up side lifts)
+const HIP_LIFT := 0.06      ## the pelvis rises this much as a knee draws up (the player: the butt was
+                            ## pressed down, then still weak at 0.03 and 0.22 rad of roll; crawling,
+                            ## the weight shifts from hip to hip and the drawn-up side lifts)
+const SPINE_LEN := 0.36     ## hips to chest (clip units): the spine tips down by the lift over it,
+                            ## so the chest stays on the forearms while the hips rise
 
 var sk: Skeleton3D
 var up := Vector3.UP
@@ -139,6 +141,7 @@ func _pose(p: float, move: float, breath := 0.0) -> void:
 		_turn(b, Quaternion(up, 0.05 * move * sin(p * TAU)))
 		if k == 0:
 			_turn(b, Quaternion(fwd, -roll * CHEST_KEEP))   # the ribcage turns most of the hips' roll back
+			_turn(b, Quaternion(left, 0.8 * atan(hip_up / SPINE_LEN)))   # down again nearly as far as the hips rose (all of it pressed the chest 1.4 cm deeper)
 	_turn(_b("DEF-neck"), Quaternion(left, -float(HEAD_UP[0])))
 	_turn(_b("DEF-head"), Quaternion(left, -float(HEAD_UP[1])))
 	# Arms: the forearm lies on the ground, the hand ahead of the elbow, a little inward.
