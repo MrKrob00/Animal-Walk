@@ -14,6 +14,12 @@ const BUNNY := {
 	"jump": "hop",   # the jump button: a hare's hop (Gait.JUMP)
 	"sit": "w",   # the sit button: her "frog" W-sit (the player chose it; Gait.SIT)
 	"soft_press": true,   # lying down, her chest, belly and thighs give against the ground (per vertex)
+	# Her hair gets bones at load (HairRig: a short chain per strand on spring bones) and slides
+	# round these spheres: [bone, offset in metres, radius in metres].
+	"hair": {"mesh": "Object_11", "head": "DEF-head", "spheres": [
+		["DEF-head", Vector3(0, 0.11, 0.0), 0.085], ["DEF-head", Vector3(0, 0.06, 0.06), 0.07], ["DEF-neck", Vector3(0, 0.04, 0), 0.05],
+		["DEF-upper_arm.L", Vector3.ZERO, 0.06], ["DEF-upper_arm.R", Vector3.ZERO, 0.06],
+		["DEF-spine.003", Vector3(0, 0.06, -0.03), 0.10]]},
 	"flesh": ["Object_11", "Object_672"],   # her butt, thighs and belly are soft and springy (SoftFlesh; the player asked): skin and shorts
 	"eye": Vector3(0, 0.10, 0.125),   # first person: from her head bone (measured on her face)
 	"walk": 1.5, "run": 3.4, "stride": 1.45, "run_stride": 2.5, "radius": 0.3,
@@ -132,6 +138,7 @@ var skeleton: Skeleton3D
 var face_target := Vector3.INF   ## when set, faces this point instead of the motion
 var extra_lean := 0.0
 var _press := []             ## soft-skin materials (SoftPress), when the character has them
+var hair: HairSprings   ## her hair's spring chains (HairRig), when she has them
 var _flesh_regions := []      ## SoftFlesh regions (her soft butt, thighs and belly), when she has them
 var paw_touch := Vector4.ZERO   ## another's paw pressing this skin: centre (world) and radius (0: none)
 var head_hidden := false     ## first person: the head (and all it carries) shrunk away
@@ -186,6 +193,8 @@ func _ready() -> void:
 		gait.run_speed = data.run
 		if not _flesh_regions.is_empty():
 			gait.set_flesh(_flesh_regions)
+		if data.has("hair"):
+			hair = HairRig.build(self, skeleton, data.hair)
 
 
 ## Scale to `height` metres by the deform bones (+10% for the head above the top bone),
@@ -422,6 +431,11 @@ func animate(delta: float, spd: float) -> void:
 				var par_pose := skeleton.get_bone_global_pose(par) if par >= 0 else Transform3D.IDENTITY
 				skeleton.set_bone_pose_position(hb, par_pose.affine_inverse() * into)
 				skeleton.set_bone_pose_scale(hb, Vector3.ONE * 0.001)
+	if hair != null:
+		if head_hidden:
+			hair.reset()   # first person: the head (and its hair) is put away
+		else:
+			hair.step(delta, gait.motion_fix, body.global_position + global_basis * (gait.body_offset(float(data.height)) - body.position))   # the body as it will be this frame (bob, crouch, jump)
 	if not _press.is_empty():
 		var k := smoothstep(0.0, 1.0, gait.crawl)
 		for m in _press:
