@@ -12,7 +12,7 @@ extends SceneTree
 const OUT := "res://assets/anim/crawl.res"
 const CYCLE := 1.7          ## seconds per full crawl cycle (both arms once)
 const FRAMES := 32
-const STRIDE := 0.5         ## metres the body moves per cycle (clip's own size)
+const STRIDE := 0.64        ## metres the body moves per cycle (clip's own size): each forearm pulls 0.32 m
 const HIPS_Y := 0.16        ## hips above the ground, lying
 const ARCH := [0.10, 0.16, 0.18]   ## spine.001-.003 bent up (chest on the forearms), radians
 const HEAD_UP := [0.45, 0.5]       ## neck, head lifted to look ahead

@@ -10,7 +10,7 @@ const HAMMER_TIME := 0.6   ## the bunny stands still while she hammers, seconds
 var obstacles := Obstacles.new()
 var passages := []   ## low places to crawl under (LowPassages)
 var _passage_caps := []
-const CRAWL_SPEED := 0.7   ## m/s, crawling
+const CRAWL_SPEED := 0.7   ## m/s, crawling, for a character without crawl clips
 var splash: Puffs              ## water drops when a paw lands in the sea
 var rules := LeashRules.new()
 var bunny: Actor
@@ -181,12 +181,17 @@ func _physics_process(delta: float) -> void:
 	button.set_active(rules.steers_tofu() or rules.can_pick(bunny.position))
 
 
+## How fast `who` may crawl: as fast as its crawl clip looks natural.
+func _crawl_speed(who: Actor) -> float:
+	return who.gait.rt.crawl_speed() if who.gait.rt != null else CRAWL_SPEED
+
+
 ## The player's character: walk with the stick, run with the stick pushed far (or Shift).
 ## The stick is read relative to the camera: "up" walks away from it.
 func _drive(who: Actor, v: Vector2, running: bool, delta: float) -> void:
 	var top: float = who.data.run if running else who.data.walk
 	if who.gait.crawling or who.gait.crawl > 0.2:
-		top = minf(top, CRAWL_SPEED)
+		top = minf(top, _crawl_speed(who))
 	var dir := camera_rig.to_ground(v) if camera_rig != null else Vector3(v.x, 0, v.y)
 	who.steer(dir * top, delta)
 
@@ -200,7 +205,7 @@ func _follow(who: Actor, leader: Vector3, delta: float) -> void:
 	if dist > 0.001:
 		want = to / dist * LeashRules.follow_speed(dist, LEASH_GROUND, float(who.data.run))
 	if who.gait.crawling or who.gait.crawl > 0.2:
-		want = want.limit_length(CRAWL_SPEED)
+		want = want.limit_length(_crawl_speed(who))
 	who.velocity = who.velocity.move_toward(want, 10.0 * delta)
 	var free := who.position + who.velocity * delta
 	var held := LeashRules.clamp_to(free, leader, LEASH_GROUND)

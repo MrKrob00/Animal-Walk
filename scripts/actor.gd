@@ -143,6 +143,8 @@ func _ready() -> void:
 		gait.stride = data.stride
 		gait.run_stride = data.run_stride
 		gait._height_hint = float(data.height)
+		if gait.rt != null:
+			gait.rt.height = float(data.height)
 		gait.walk_speed = data.walk
 		gait.run_speed = data.run
 

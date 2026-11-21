@@ -37,6 +37,19 @@ func _run() -> void:
 		Check.ok(head.call() < h * 0.45, "%s gets down on its belly (head %.2f m up)" % [name, head.call()])
 		Check.ok(deepest < 0.025, "%s: nothing sinks into the ground (%.1f cm at most)" % [name, deepest * 100])
 		Check.ok(steps == 0, "%s leaves no footprints crawling" % name)
+		# At the fastest it may crawl, a cycle takes no less than its natural pace (it was 0.5 s).
+		var rt: Retarget = a.gait.rt
+		for i in 60:   # settle at that speed first
+			a.position += Vector3(0, 0, rt.crawl_speed() / 60.0)
+			a.animate(1.0 / 60.0, rt.crawl_speed())
+		var turns := 0.0
+		var last := rt.crawl_phase
+		for i in 180:
+			a.position += Vector3(0, 0, rt.crawl_speed() / 60.0)
+			a.animate(1.0 / 60.0, rt.crawl_speed())
+			turns += fposmod(rt.crawl_phase - last, 1.0)
+			last = rt.crawl_phase
+		Check.ok(3.0 / turns >= Retarget.CRAWL_FASTEST - 0.05, "%s crawls at a natural pace (%.1f s a cycle at %.2f m/s)" % [name, 3.0 / turns, rt.crawl_speed()])
 		if who == Actor.BUNNY:
 			Check.ok(chest_low < SoftPress.BAND, "her chest rests on the ground and gives (%.1f cm into the soft band)" % ((SoftPress.BAND - chest_low) * 100))
 		for i in 90:

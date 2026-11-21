@@ -40,7 +40,10 @@ var leg_scale := 1.0   ## our leg length / the source's (for how far a step goes
 var phase := 0.0       ## 0..1 through the locomotion cycle, 0 = left foot lands
 var crawl := 0.0       ## 0..1: how far down into the army crawl (set by Gait)
 var crawl_phase := 0.0 ## 0..1 through the crawl cycle
-const CRAWL_STRIDE := 0.5   ## metres one crawl cycle moves the clip's own body (tools/make_crawl.gd)
+const CRAWL_STRIDE := 0.64  ## metres one crawl cycle moves the clip's own body (each forearm pulls 0.32 m: tools/make_crawl.gd)
+const SRC_HEIGHT := 1.75    ## the clip mannequin's height, metres
+const CRAWL_FASTEST := 1.4  ## seconds: a crawl cycle never runs quicker (the player: it was unnaturally fast)
+var height := 1.75          ## our height (set by Gait); crawling is sized by it, not by the legs (a rabbit's are short)
 var idle_time := 0.0
 var speeds := {}       ## clip -> ground speed at our size, m/s
 var _contact := {}     ## clip -> where the left foot lands, 0..1
@@ -172,7 +175,7 @@ func apply(delta: float, speed: float) -> Array:
 		var len: float = src.clips[c].length
 		mix.append([c, fposmod(phase + _contact[c], 1.0) * len, w[c] * stand])
 	if crawl > 0.001 and src.clips.has("Crawl_Fwd"):
-		crawl_phase = fposmod(crawl_phase + speed * delta / (CRAWL_STRIDE * leg_scale), 1.0)
+		crawl_phase = fposmod(crawl_phase + speed * delta / crawl_cycle(), 1.0)
 		var go := smoothstep(0.02, 0.2, speed)
 		mix.append(["Crawl_Fwd", crawl_phase * src.clips["Crawl_Fwd"].length, crawl * go])
 		mix.append(["Crawl_Idle", idle_time, crawl * (1.0 - go)])
@@ -204,6 +207,16 @@ func apply(delta: float, speed: float) -> Array:
 		elif before < 0.5 and phase >= 0.5:
 			landed = -1         # the right foot lands
 	return [hips_off, landed]
+
+
+## Metres one crawl cycle moves us.
+func crawl_cycle() -> float:
+	return CRAWL_STRIDE * height / SRC_HEIGHT
+
+
+## The fastest we crawl, m/s (a cycle in CRAWL_FASTEST seconds).
+func crawl_speed() -> float:
+	return crawl_cycle() / CRAWL_FASTEST
 
 
 ## The clip's upper arm and forearm directions this frame (character space): [upper, fore].
