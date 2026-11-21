@@ -21,6 +21,7 @@ var footprints: Footprints
 var puffs: Puffs
 var joystick: TouchJoystick
 var button: ActionButton
+var view_button: ViewButton
 var camera_rig: CameraRig
 var forced_input := Vector2.ZERO   ## scripted runs (screenshots, tests)
 var forced_run := false
@@ -94,11 +95,15 @@ func _ready() -> void:
 	button = ActionButton.new()
 	ui.add_child(button)
 	button.pressed.connect(act)
+	view_button = ViewButton.new()
+	ui.add_child(view_button)
+	view_button.pressed.connect(toggle_view)
 
 	camera_rig = CameraRig.new()
 	camera_rig.target = tofu
 	camera_rig.second = bunny
 	camera_rig.button = button
+	camera_rig.buttons = [view_button]
 	camera_rig.stick_zone = TouchJoystick.ZONE
 	add_child(camera_rig)
 
@@ -106,6 +111,14 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("act"):
 		act()
+	elif event.is_action_pressed("view"):
+		toggle_view()
+
+
+## Third person <-> the eyes of the one you steer (the player asked for both).
+func toggle_view() -> void:
+	camera_rig.toggle_first_person()
+	view_button.set_first_person(camera_rig.first_person)
 
 
 ## The action button: hammer the stake in, or pull it out when the bunny is next to it.
@@ -177,6 +190,13 @@ func _physics_process(delta: float) -> void:
 		who.gait.crawling = LowPassages.under(Vector2(who.position.x, who.position.z), passages)
 	# The collar's ring slides round toward the leash, so the rope leaves the neck on its side.
 	tofu.aim_collar(leash.pts[6] if leash.pts.size() > 6 else bunny.position, delta)
+	# First person: the one you steer turns its body to where you look (standing; walking already
+	# goes where you look), so the view never looks out through the back of its head.
+	if camera_rig.first_person:
+		var me: Actor = tofu if rules.steers_tofu() else bunny
+		if me.speed < 0.3:
+			var ax: Array = camera_rig.ground_axes()
+			me.face_target = me.position + (ax[1] as Vector3) * 3.0
 	stake.set_hint(rules.can_pick(bunny.position), _time)
 	button.set_active(rules.steers_tofu() or rules.can_pick(bunny.position))
 
@@ -287,6 +307,7 @@ func _setup_input() -> void:
 		"move_down": [KEY_S, KEY_DOWN],
 		"run": [KEY_SHIFT],
 		"act": [KEY_SPACE, KEY_E],
+		"view": [KEY_V],
 	}
 	for action in keys:
 		if InputMap.has_action(action):

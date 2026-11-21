@@ -12,6 +12,7 @@ const BUNNY := {
 	# Her T-posed model with a clean skeleton (tools/tpose_bunny.gd makes it from the Sketchfab file).
 	"path": "res://assets/chobby_tpose.glb", "height": 1.6, "sole": 0.032,
 	"soft_press": true,   # lying down, her chest, belly and thighs give against the ground (per vertex)
+	"eye": Vector3(0, 0.10, 0.125),   # first person: from her head bone (measured on her face)
 	"walk": 1.5, "run": 3.4, "stride": 1.45, "run_stride": 2.5, "radius": 0.3,
 	# Her top and shorts take the skin's bone weights, so no gap opens when the chest moves.
 	# The leash lies over these instead of passing through: [from bone, to bone, radius m, reach past "to" m].
@@ -67,6 +68,7 @@ const BUNNY := {
 ## TOFU: the red panda on the leash (rig made by tools/blender/rig_tofu.py).
 const TOFU := {
 	"path": "res://assets/tofu_rigged.glb", "height": 1.1,
+	"eye": Vector3(0, 0.09, 0.03),   # first person: from its head bone (back from its long snout, so the collar shows below)
 	"walk": 1.6, "run": 3.8, "stride": 1.1, "run_stride": 2.0, "radius": 0.25,
 	"bones": {
 		"pelvis": "hips", "spine": ["spine", "chest"], "neck": "neck", "head": "head",
@@ -105,6 +107,7 @@ var skeleton: Skeleton3D
 var face_target := Vector3.INF   ## when set, faces this point instead of the motion
 var extra_lean := 0.0
 var _press := []             ## soft-skin materials (SoftPress), when the character has them
+var head_hidden := false     ## first person: the head (and all it carries) shrunk away
 var _model: Node3D
 var _fit_scale := 1.0
 
@@ -180,6 +183,27 @@ func _feet_y() -> float:
 		if n.contains("foot") or n.contains("toe"):
 			y = minf(y, (_model.global_transform.affine_inverse() * (skeleton.global_transform * skeleton.get_bone_global_pose(i)).origin).y)
 	return y
+
+
+const HEAD_TUCK := 0.12   ## share of the height below the neck a hidden head is put away
+var _eye := Vector3.INF
+
+
+## Where the eyes are (world): `data.eye` (metres, character space: up, forward) from the head
+## bone, turned as the head is turned (as of the last `animate`, before a hidden head is put away).
+func eye_position() -> Vector3:
+	return _eye if _eye != Vector3.INF else _eye_now()
+
+
+func _eye_now() -> Vector3:
+	var hb := Gait.find_bone(skeleton, data.bones.head)
+	if hb < 0:
+		return global_position + Vector3(0, float(data.height) * 0.9, 0)
+	var now := (skeleton.global_transform.basis * skeleton.get_bone_global_pose(hb).basis).orthonormalized()
+	var rest := (skeleton.global_transform.basis * skeleton.get_bone_global_rest(hb).basis).orthonormalized()
+	var turn := now * rest.inverse()
+	var off: Vector3 = data.get("eye", Vector3(0, 0.1, 0.1))
+	return skeleton.global_transform * skeleton.get_bone_global_pose(hb).origin + turn * (body.global_basis.orthonormalized() * off)
 
 
 ## Builds the collar from data.collar on its bone; returns the ring the leash clips to.
@@ -312,6 +336,21 @@ func animate(delta: float, spd: float) -> void:
 	gait.lean = lerpf(gait.lean, extra_lean, 1.0 - exp(-6.0 * delta))
 	var landed := gait.update(delta, spd)
 	body.position = gait.body_offset(float(data.height))
+	if skeleton != null:
+		var hb := Gait.find_bone(skeleton, data.bones.head)
+		if hb >= 0:
+			skeleton.set_bone_pose_position(hb, skeleton.get_bone_rest(hb).origin)
+			skeleton.set_bone_pose_scale(hb, Vector3.ONE)
+			_eye = _eye_now()   # where the eyes are, before the head is put away
+			if head_hidden:
+				# Shrunk to a point inside the chest, below the neck: the skin between neck and
+				# head goes in with it, so nothing of the head is left in front of the eyes.
+				var par := skeleton.get_bone_parent(hb)
+				var neck_w := skeleton.global_transform * skeleton.get_bone_global_pose(par if par >= 0 else hb).origin
+				var into := skeleton.global_transform.affine_inverse() * (neck_w - Vector3.UP * HEAD_TUCK * float(data.height))
+				var par_pose := skeleton.get_bone_global_pose(par) if par >= 0 else Transform3D.IDENTITY
+				skeleton.set_bone_pose_position(hb, par_pose.affine_inverse() * into)
+				skeleton.set_bone_pose_scale(hb, Vector3.ONE * 0.001)
 	if not _press.is_empty():
 		var k := smoothstep(0.0, 1.0, gait.crawl)
 		for m in _press:

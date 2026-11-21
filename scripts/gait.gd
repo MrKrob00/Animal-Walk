@@ -14,6 +14,8 @@ var run_speed := 3.5       ## m/s at which the run is at full swing
 var phase := 0.0
 var lean := 0.0            ## extra whole-body lean, radians: + forward, - back (being dragged)
 var look_target := Vector3.INF   ## world point the head turns to (Vector3.INF: look around)
+var view_dir := Vector3.INF      ## first person: where the camera looks (world); the head follows it partly
+var _view_pitch := 0.0
 var hold_target := Vector3.INF   ## world point the right hand reaches to (the leash), or INF
 var hold_pull := 0.0       ## 0..1: how hard the leash pulls the hand
 var speed := 0.0           ## smoothed speed used for the pose, m/s
@@ -266,6 +268,12 @@ func update(delta: float, measured: float) -> int:
 	var head_yaw := _look.step(look, delta, 4.0, 0.9)
 	var nod := (0.035 * w * cos(phase * 2.0) - 0.1 * r * w + 0.03 * sin(_time * 0.5) * idle) * loco - 0.25 * hm
 	nod += 0.16 * ft + 0.06 * ft * sin(phase * 2.0) + 0.2 * st - 0.42 * wd   # droops, bobs; looks up when bent over
+	# First person: the head tips after the view, but only so far (the eyes do the rest).
+	var want_pitch := 0.0
+	if view_dir != Vector3.INF:
+		want_pitch = clampf(-asin(clampf(view_dir.normalized().y, -1.0, 1.0)) * 0.55, -0.35, 0.6)
+	_view_pitch = lerpf(_view_pitch, want_pitch, 1.0 - exp(-8.0 * delta))
+	nod += _view_pitch
 	_pose(_one("neck"), nod * 0.4, head_yaw * 0.4 + p_yaw * 0.1, 0.0)
 	_pose(_one("head"), nod * 0.6, head_yaw * 0.6 + p_yaw * 0.05, -p_roll * 0.3)
 
@@ -517,6 +525,9 @@ func _hammer_knock() -> float:
 
 
 func _look_yaw() -> float:
+	if view_dir != Vector3.INF and _body != null:
+		var v := _body.global_basis.inverse() * view_dir
+		return clampf(atan2(v.x, v.z), -0.9, 0.9)
 	if look_target != Vector3.INF and _body != null:
 		var l := _body.global_transform.affine_inverse() * look_target
 		return clampf(atan2(l.x, l.z), -0.9, 0.9)

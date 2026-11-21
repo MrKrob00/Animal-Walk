@@ -18,8 +18,10 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
+## (From the screen's size: this control's own size stays 0 under the CanvasLayer, which put the
+## button off the screen.)
 func center() -> Vector2:
-	return size - Vector2(MARGIN + RADIUS, MARGIN + RADIUS)
+	return get_viewport_rect().size - Vector2(MARGIN + RADIUS, MARGIN + RADIUS)
 
 
 func _input(event: InputEvent) -> void:

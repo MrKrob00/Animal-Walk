@@ -6,6 +6,10 @@ extends Node3D
 ##          fingers to come closer or move away. The left part is the walking stick.
 ##   PC:    drag with the right mouse button (or the left one on the right part) to turn; the
 ##          wheel zooms.
+## First person (a button, or V): the camera sits at the eyes of the character you steer, whose
+## head is hidden so it never gets in the way; the head turns after the view only partly (the
+## eyes do the rest), so looking down shows the bunny's chest or TOFU's collar without breaking
+## a neck.
 ## Walking is relative to the camera: the stick's "up" goes away from the camera.
 
 const FOV := 50.0
@@ -27,6 +31,12 @@ var camera: Camera3D
 var button: Control      ## the action button (its touches are not for the camera)
 var stick_zone := 0.6    ## left share of the screen that belongs to the walking stick
 
+var buttons: Array = []  ## more on-screen buttons whose touches are not for the camera
+var first_person := false
+var look := -0.2         ## first person: up (+) / down (-) from the horizon, radians
+const LOOK_MIN := -1.45  ## first person: furthest down (her chest shows; the neck turns only part of it)
+const LOOK_MAX := 0.9
+var _hidden_on: Node3D   ## whose head is hidden (first person)
 var yaw := 0.0           ## round the character; 0 looks toward -Z (the sea at the start)
 var pitch := PITCH
 var distance := DISTANCE
@@ -72,7 +82,22 @@ func to_ground(v: Vector2) -> Vector3:
 
 func turn(dx: float, dy: float) -> void:
 	yaw -= dx * TURN
-	pitch = clampf(pitch + dy * TURN, MIN_PITCH, MAX_PITCH)
+	if first_person:
+		look = clampf(look - dy * TURN, LOOK_MIN, LOOK_MAX)
+	else:
+		pitch = clampf(pitch + dy * TURN, MIN_PITCH, MAX_PITCH)
+
+
+## Switches between third person and the eyes of the character being steered.
+func toggle_first_person() -> void:
+	set_first_person(not first_person)
+
+
+func set_first_person(on: bool) -> void:
+	first_person = on
+	look = -0.2
+	camera.near = 0.03 if on else 0.05
+	_show_head()
 
 
 func zoom_by(factor: float) -> void:
@@ -120,8 +145,9 @@ func _input(event: InputEvent) -> void:
 ## button), or anywhere once the walking stick is already held.
 func _owns(p: Vector2) -> bool:
 	var size := get_viewport().get_visible_rect().size
-	if button != null and button.has_method("center") and p.distance_to(button.center()) <= ActionButton.RADIUS * 1.2:
-		return false
+	for b in [button] + buttons:
+		if b != null and b.has_method("center") and p.distance_to(b.center()) <= float(b.get("RADIUS")) * 1.2:
+			return false
 	return p.x >= size.x * stick_zone or _stick_held()
 
 
@@ -149,6 +175,33 @@ func _process(delta: float) -> void:
 	position = position.lerp(_focus(), 1.0 - exp(-6.0 * delta))
 	distance = lerpf(distance, _zoom, 1.0 - exp(-10.0 * delta))
 	_place_camera()
+	if first_person and target.has_method("eye_position"):
+		_show_head()
+		var eye: Vector3 = target.eye_position()
+		_fp_at = _fp_at.lerp(eye, 1.0 - exp(-25.0 * delta)) if _fp_ready else eye   # smooths the head's jitter
+		_fp_ready = true
+		camera.global_transform = Transform3D(Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, look), _fp_at)
+		if "gait" in target:
+			target.gait.view_dir = -camera.global_basis.z
+	else:
+		_fp_ready = false
+
+
+var _fp_ready := false
+var _fp_at := Vector3.ZERO
+
+
+## First person: the steered character's head is hidden (so it never blocks the eyes); everyone
+## else shows theirs; its head stops following the view.
+func _show_head() -> void:
+	var who: Node3D = target if first_person else null
+	if _hidden_on != null and is_instance_valid(_hidden_on) and _hidden_on != who:
+		_hidden_on.set("head_hidden", false)
+		if "gait" in _hidden_on:
+			_hidden_on.gait.view_dir = Vector3.INF
+	if who != null and "head_hidden" in who:
+		who.set("head_hidden", true)
+	_hidden_on = who
 
 
 func _place_camera() -> void:
