@@ -20,6 +20,10 @@ var hold_target := Vector3.INF   ## world point the right hand reaches to (the l
 var hold_pull := 0.0       ## 0..1: how hard the leash pulls the hand
 var speed := 0.0           ## smoothed speed used for the pose, m/s
 var dragged := false       ## set by the game: the leash is taut and pulls this character
+var paw_target := Vector3.INF   ## set by the game: where the right paw's centre reaches (the paw stick); INF: hanging
+var paw_off := 0.1              ## the paw's centre is this far past the wrist, along the forearm
+var soft_poke := Vector4.ZERO   ## set by the game: a paw (centre, radius) the soft parts' tips are pushed out of
+var soft_poke_vel := Vector3.ZERO   ## ... and how fast it moves (m/s)
 var crawling := false      ## set by the game: under something low, crawl (army crawl)
 var crawl := 0.0           ## 0..1 eased: how far down into the crawl
 var crawl_lift := 0.0      ## metres the body is raised lying down (a thick body would sink: "crawl_lift")
@@ -333,6 +337,7 @@ func update(delta: float, measured: float) -> int:
 
 	_pulled_along(delta)
 	_reach_for_leash(delta)
+	_paw_reach(delta)
 	_crawl_ground()
 	_soft_parts(delta)
 
@@ -439,6 +444,22 @@ func _soft_parts(delta: float) -> void:
 			x = anchor + lag
 			var rel := v - v_anchor
 			v -= out * maxf(rel.dot(out), 0.0)
+		# A paw pressing it (TOFU's, the player's easter egg): the tip is pushed out of the paw and
+		# keeps the paw's speed into it, then swings back by itself.
+		if soft_poke.w > 0.0:
+			var c := Vector3(soft_poke.x, soft_poke.y, soft_poke.z)
+			var shown := anchor + lag * SOFT_GAIN
+			var off := shown - c
+			if off.length() < soft_poke.w:
+				var nrm := off.normalized() if off.length() > 1e-5 else Vector3.UP
+				shown = c + nrm * soft_poke.w
+				lag = (shown - anchor) / SOFT_GAIN
+				if lag.length() > reach:
+					lag = lag.normalized() * reach
+				x = anchor + lag
+				var into := (v - soft_poke_vel).dot(nrm)
+				if into < 0.0:
+					v -= nrm * into
 		part[2] = x
 		part[3] = v
 		x = anchor + lag * SOFT_GAIN
@@ -689,6 +710,77 @@ func _reach_for_leash(delta: float) -> void:
 	var q2 := _arc(fa_now, (sh + u * d - el_new).normalized())
 	var gb2 := (Basis(q1) * g_fa.basis.orthonormalized()).orthonormalized()
 	skeleton.set_bone_pose_rotation(fa, skeleton.get_bone_pose_rotation(fa) * Quaternion(gb2.inverse() * Basis(q2) * gb2))
+
+
+## The right paw on the second stick: the paw's centre goes to `paw_target` (PawReach already
+## stopped it at whatever it meets; the forearm and paw reach as one segment, so the paw lands
+## there whatever the elbow does) through a quick, well damped spring, the elbow down, out and back;
+## let go, the arm eases back to hanging in about 0.4 s.
+const PAW_EASE := 2.5      ## per second, in and out
+const PAW_FREQ := 3.0      ## the wrist's spring, Hz (an arm moves, a cursor jumps)
+
+var _paw := 0.0
+var _paw_point := Vector3.ZERO
+var _paw_x := Vector3.ZERO
+var _paw_v := Vector3.ZERO
+var _paw_ready := false
+
+
+func _paw_reach(delta: float) -> void:
+	_paw = move_toward(_paw, 1.0 if paw_target != Vector3.INF and crawl < 0.05 else 0.0, delta * PAW_EASE)
+	var ua := _one("upper_arm_r")
+	var fa := _one("forearm_r")
+	var hand := _one("hand_r")
+	if _paw < 0.001 or ua < 0 or fa < 0 or hand < 0:
+		_paw_ready = false
+		return
+	if paw_target != Vector3.INF:
+		_paw_point = paw_target
+	var to_sk := skeleton.global_transform.affine_inverse()
+	var g_ua := skeleton.get_bone_global_pose(ua)
+	var g_fa := skeleton.get_bone_global_pose(fa)
+	var wr := skeleton.get_bone_global_pose(hand).origin
+	var tip := wr + (wr - g_fa.origin).normalized() * paw_off / skeleton.global_transform.basis.get_scale().x   # metres to the rig's units
+	var goal := to_sk * _paw_point
+	if not _paw_ready:
+		_paw_x = tip
+		_paw_v = Vector3.ZERO
+		_paw_ready = true
+	# Critically damped (no overshoot into what it met), solved exactly: stable however long
+	# the frame (an explicit step blew up on long frames).
+	var wk := TAU * PAW_FREQ
+	var dx := _paw_x - goal
+	var k := (_paw_v + dx * wk) * delta
+	var e := exp(-wk * delta)
+	_paw_x = goal + (dx + k) * e
+	_paw_v = (_paw_v - k * wk) * e
+	var target := tip.lerp(_paw_x, smoothstep(0.0, 1.0, _paw))
+	_two_bone(ua, fa, g_ua, g_fa, tip, target, -_up_sk - _side_sk * 0.6 - _fwd_sk * 0.3)
+
+## Two-bone IK in skeleton space: turns `ua` and `fa` so the wrist (now at `wr`) reaches
+## `target`, the elbow bending toward `pole`.
+func _two_bone(ua: int, fa: int, g_ua: Transform3D, g_fa: Transform3D, wr: Vector3, target: Vector3, pole: Vector3) -> void:
+	var sh := g_ua.origin
+	var el := g_fa.origin
+	var l1 := (el - sh).length()
+	var l2 := (wr - el).length()
+	var d := clampf((target - sh).length(), absf(l1 - l2) + 0.001, l1 + l2 - 0.001)
+	var u := (target - sh).normalized()
+	pole = (pole - u * pole.dot(u)).normalized()
+	var cos_a := clampf((l1 * l1 + d * d - l2 * l2) / (2.0 * l1 * d), -1.0, 1.0)
+	var el_new := sh + (u * cos_a + pole * sqrt(1.0 - cos_a * cos_a)) * l1
+	var q1 := _arc((el - sh).normalized(), (el_new - sh).normalized())
+	var gb1 := g_ua.basis.orthonormalized()
+	skeleton.set_bone_pose_rotation(ua, skeleton.get_bone_pose_rotation(ua) * Quaternion(gb1.inverse() * Basis(q1) * gb1))
+	var fa_now := q1 * (wr - el).normalized()
+	var q2 := _arc(fa_now, (sh + u * d - el_new).normalized())
+	var gb2 := (Basis(q1) * g_fa.basis.orthonormalized()).orthonormalized()
+	skeleton.set_bone_pose_rotation(fa, skeleton.get_bone_pose_rotation(fa) * Quaternion(gb2.inverse() * Basis(q2) * gb2))
+
+
+## How far the paw is out: 0 hanging .. 1 reaching.
+func paw_out() -> float:
+	return _paw
 
 
 ## What a right shoulder can do: the arm follows the leash strongly, but never further than

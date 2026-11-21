@@ -1,6 +1,6 @@
 class_name ActionButton
 extends Control
-## Round on-screen button (bottom right) with a stake icon drawn in code.
+## Round on-screen button (bottom right, above the paw stick) with a stake icon drawn in code.
 ## Emits `pressed`. Dim when the action would do nothing.
 
 signal pressed
@@ -20,8 +20,10 @@ func _ready() -> void:
 
 ## (From the screen's size: this control's own size stays 0 under the CanvasLayer, which put the
 ## button off the screen.)
+## Above the paw stick (the corner is the paw's: the player chose it).
 func center() -> Vector2:
-	return get_viewport_rect().size - Vector2(MARGIN + RADIUS, MARGIN + RADIUS)
+	var corner := get_viewport_rect().size - Vector2(ArmStick.MARGIN + ArmStick.RADIUS, ArmStick.MARGIN + ArmStick.RADIUS)
+	return corner - Vector2(ArmStick.RADIUS * 0.7, ArmStick.RADIUS + RADIUS + 28.0)
 
 
 func _input(event: InputEvent) -> void:

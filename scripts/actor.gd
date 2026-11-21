@@ -17,6 +17,18 @@ const BUNNY := {
 	# Her top and shorts take the skin's bone weights, so no gap opens when the chest moves.
 	# The leash lies over these instead of passing through: [from bone, to bone, radius m, reach past "to" m].
 	"capsules": [["DEF-spine", "DEF-spine.003", 0.14, 0.05], ["DEF-thigh.L", "DEF-thigh.R", 0.07, 0.0]],
+	# TOFU's paw stops against these (PawReach): [from bone, to bone, radius m, metres up, soft].
+	# Radii about the skin's 90th percentile round each bone (measured); her chest is soft: the paw
+	# sinks into it a little, the skin gives (SoftPress) and it wobbles (Gait.soft_poke).
+	"touch": [
+		["DEF-spine", "DEF-spine.003", 0.13, 0.0, false], ["DEF-spine.003", "DEF-neck", 0.10, 0.0, false],
+		["DEF-head", "DEF-head", 0.13, 0.08, false], ["DEF-thigh.L", "DEF-thigh.R", 0.12, 0.0, false],
+		["DEF-thigh.L", "DEF-shin.L", 0.11, 0.0, false], ["DEF-thigh.R", "DEF-shin.R", 0.11, 0.0, false],
+		["DEF-shin.L", "DEF-foot.L", 0.07, 0.0, false], ["DEF-shin.R", "DEF-foot.R", 0.07, 0.0, false],
+		["DEF-upper_arm.L", "DEF-forearm.L", 0.055, 0.0, false], ["DEF-upper_arm.R", "DEF-forearm.R", 0.055, 0.0, false],
+		["DEF-forearm.L", "DEF-hand.L", 0.045, 0.0, false], ["DEF-forearm.R", "DEF-hand.R", 0.045, 0.0, false],
+		["DEF-breast04.L", "DEF-breast04.L", 0.07, 0.0, true], ["DEF-breast04.R", "DEF-breast04.R", 0.07, 0.0, true],
+	],
 	"cloth": {"body": "Object_11", "items": ["Object_670", "Object_672"],
 		"skip": ["DEF-upper_arm", "DEF-forearm", "DEF-hand", "DEF-f_", "DEF-thumb", "DEF-palm"], "lift": 0.0},   # lifted off the skin when baked
 	"bones": {
@@ -92,6 +104,8 @@ const TOFU := {
 	# measured from the neck: it is about 0.17 wide around y = 3.26.
 	# The leash lies over these instead of passing through: [from bone, to bone, radius m, reach past "to" m].
 	"capsules": [["hips", "chest", 0.16, 0.0], ["tail1", "tail3", 0.12, 0.3]],
+	# The right paw on the second stick (PawReach): its size round a point this far past the wrist.
+	"paw": {"r": 0.06, "off": 0.10},
 	"collar": {"bone": "neck", "center": Vector3(0, 3.28, 0.02), "radius": Vector2(0.2, 0.19),
 		"tube": 0.032, "tilt": 0.26, "color": "#c8333f", "ring": "#e2b84f"},
 	"hide": [],
@@ -107,6 +121,7 @@ var skeleton: Skeleton3D
 var face_target := Vector3.INF   ## when set, faces this point instead of the motion
 var extra_lean := 0.0
 var _press := []             ## soft-skin materials (SoftPress), when the character has them
+var paw_touch := Vector4.ZERO   ## another's paw pressing this skin: centre (world) and radius (0: none)
 var head_hidden := false     ## first person: the head (and all it carries) shrunk away
 var _model: Node3D
 var _fit_scale := 1.0
@@ -288,6 +303,32 @@ func capsules() -> Array:
 	return out
 
 
+## The body's shapes in world space for TOFU's paw to stop against: [a, b, radius, soft].
+func touch_shapes() -> Array:
+	var out := []
+	for c in data.get("touch", []):
+		var a := Gait.find_bone(skeleton, c[0])
+		var b := Gait.find_bone(skeleton, c[1])
+		if a < 0 or b < 0:
+			continue
+		var up := Vector3.UP * float(c[3])
+		out.append([skeleton.global_transform * skeleton.get_bone_global_pose(a).origin + up,
+			skeleton.global_transform * skeleton.get_bone_global_pose(b).origin + up, float(c[2]), bool(c[4])])
+	return out
+
+
+## The paw's centre (world) and how far it is out (0 = hanging, 1 = reaching): see Gait.paw_target.
+func paw_center() -> Vector3:
+	var paw: Dictionary = data.get("paw", {})
+	var h := Gait.find_bone(skeleton, data.bones.get("hand_r", ""))
+	var f := Gait.find_bone(skeleton, data.bones.get("forearm_r", ""))
+	if paw.is_empty() or h < 0 or f < 0:
+		return Vector3.INF
+	var wr: Vector3 = skeleton.global_transform * skeleton.get_bone_global_pose(h).origin
+	var el: Vector3 = skeleton.global_transform * skeleton.get_bone_global_pose(f).origin
+	return wr + (wr - el).normalized() * float(paw.off)
+
+
 func ring_angle() -> float:
 	return _ring_angle
 
@@ -356,6 +397,7 @@ func animate(delta: float, spd: float) -> void:
 		for m in _press:
 			m.set_shader_parameter("floor_y", global_position.y)
 			m.set_shader_parameter("press", k)
+			m.set_shader_parameter("paw", paw_touch)
 	body.rotation.x = lerpf(body.rotation.x, gait.body_lean(), 1.0 - exp(-8.0 * delta))
 	if landed != 0:
 		footstep.emit(gait.foot_position(landed > 0), float(data.height) / 1.6)

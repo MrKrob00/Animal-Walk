@@ -19,7 +19,6 @@ func _ready() -> void:
 func _input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
 		if event.pressed and _finger < 0 and event.position.x < get_parent_area_size().x * ZONE:
-			print(1)
 			_finger = event.index
 			_origin = event.position
 			_knob = event.position

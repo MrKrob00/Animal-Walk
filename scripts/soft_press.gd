@@ -37,3 +37,17 @@ static func squash_y(y: float, floor_y: float, band := BAND) -> float:
 	if d <= 0.0:
 		return y
 	return top - band * (1.0 - exp(-d / band))
+
+
+const PAW_BAND := 0.02
+
+
+## Where the shader puts a point at `p` round a paw at `c` of radius `r` (never inside it).
+static func out_of_paw(p: Vector3, c: Vector3, r: float, band := PAW_BAND) -> Vector3:
+	var off := p - c
+	var d := off.length()
+	var out_r := r + band
+	if d >= out_r:
+		return p
+	var d2 := out_r - band * (1.0 - exp(-(out_r - d) / band))
+	return c + (off / d if d > 1e-5 else Vector3.UP) * d2

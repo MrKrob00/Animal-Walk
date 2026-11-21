@@ -26,9 +26,11 @@ var joystick: TouchJoystick
 var button: ActionButton
 var view_button: ViewButton
 var switch_button: SwitchButton
+var arm_stick: ArmStick
 var camera_rig: CameraRig
 var forced_input := Vector2.ZERO   ## scripted runs (screenshots, tests)
 var forced_run := false
+var forced_paw := Vector2.INF     ## scripted runs: the paw stick held at this (INF: let go)
 var partner_input := Vector3.ZERO  ## co-op later: the other character's wish (ground direction, length 0..1); scripts only for now
 var _hand: Node3D
 var _collar: Node3D
@@ -98,6 +100,8 @@ func _ready() -> void:
 	add_child(ui)
 	joystick = TouchJoystick.new()
 	ui.add_child(joystick)
+	arm_stick = ArmStick.new()
+	ui.add_child(arm_stick)
 	button = ActionButton.new()
 	ui.add_child(button)
 	button.pressed.connect(act)
@@ -112,7 +116,7 @@ func _ready() -> void:
 	camera_rig.target = tofu
 	camera_rig.second = bunny
 	camera_rig.button = button
-	camera_rig.buttons = [view_button, switch_button]
+	camera_rig.buttons = [view_button, switch_button, arm_stick]
 	camera_rig.stick_zone = TouchJoystick.ZONE
 	add_child(camera_rig)
 
@@ -148,6 +152,9 @@ func _aim_camera() -> void:
 	if camera_rig.first_person:
 		camera_rig.set_first_person(true)
 	switch_button.set_bunny(not rules.steers_tofu())
+	arm_stick.visible = rules.steers_tofu()   # the paw stick is TOFU's
+	if not arm_stick.visible:
+		arm_stick.release()
 
 
 ## Third person <-> the eyes of the one you steer (the player asked for both).
@@ -197,6 +204,7 @@ func _physics_process(delta: float) -> void:
 	if _busy > 0.0:
 		_busy -= delta
 	_move(v, running, delta)
+	_paw(delta)
 	leash.colliders = tofu.capsules() + bunny.capsules() + _passage_caps
 	# Under a fallen trunk, whoever is there gets down and crawls.
 	for who in [tofu, bunny]:
@@ -205,6 +213,57 @@ func _physics_process(delta: float) -> void:
 	tofu.aim_collar(leash.pts[6] if leash.pts.size() > 6 else bunny.position, delta)
 	stake.set_hint(rules.can_pick(bunny.position), _time)
 	button.set_active(rules.held() or rules.can_pick(bunny.position))
+
+
+const SOFT_CORE := 0.045   ## the chest's tip keeps this far out of the paw's ball (its soft core)
+var _paw_prev := Vector3.INF
+
+
+## TOFU's right paw on the second stick: pointed by the stick, out until it meets something
+## (PawReach); against the bunny's skin the skin gives and her chest is pushed and wobbles.
+func _paw(delta: float) -> void:
+	var v := Vector2.ZERO
+	var held := false
+	if forced_paw != Vector2.INF:
+		v = forced_paw
+		held = true
+	elif arm_stick != null and arm_stick.held:
+		v = arm_stick.vector
+		held = true
+	else:
+		var k := Input.get_vector("paw_left", "paw_right", "paw_up", "paw_down")
+		if k != Vector2.ZERO:
+			v = k
+			held = true
+	var paw: Dictionary = tofu.data.paw
+	if held and rules.steers_tofu():
+		var sk := tofu.skeleton
+		var ua := Gait.find_bone(sk, tofu.data.bones.upper_arm_r)
+		var fa := Gait.find_bone(sk, tofu.data.bones.forearm_r)
+		var hd := Gait.find_bone(sk, tofu.data.bones.hand_r)
+		var sh: Vector3 = sk.global_transform * sk.get_bone_global_pose(ua).origin
+		var el: Vector3 = sk.global_transform * sk.get_bone_global_pose(fa).origin
+		var wr: Vector3 = sk.global_transform * sk.get_bone_global_pose(hd).origin
+		var arm := (sh.distance_to(el) + el.distance_to(wr)) * 0.95
+		var shapes := bunny.touch_shapes()
+		for c in _passage_caps:
+			shapes.append([c[0], c[1], c[2], false])
+		var r := PawReach.reach_free(sh, PawReach.direction(tofu, v), arm, float(paw.r), float(paw.off), shapes, obstacles)
+		tofu.gait.paw_off = float(paw.off)
+		tofu.gait.paw_target = r.paw if not r.is_empty() else Vector3.INF
+	else:
+		tofu.gait.paw_target = Vector3.INF
+	var pc := tofu.paw_center()
+	if tofu.gait.paw_out() > 0.01 and pc != Vector3.INF:
+		var vel := (pc - _paw_prev) / delta if _paw_prev != Vector3.INF else Vector3.ZERO
+		bunny.paw_touch = Vector4(pc.x, pc.y, pc.z, float(paw.r))
+		bunny.gait.soft_poke = Vector4(pc.x, pc.y, pc.z, float(paw.r) + SOFT_CORE)
+		bunny.gait.soft_poke_vel = vel
+		_paw_prev = pc
+	else:
+		bunny.paw_touch = Vector4.ZERO
+		bunny.gait.soft_poke = Vector4.ZERO
+		_paw_prev = Vector3.INF
 
 
 ## How fast `who` may crawl: as fast as its crawl clip looks natural.
@@ -400,6 +459,10 @@ func _setup_input() -> void:
 		"act": [KEY_SPACE, KEY_E],
 		"view": [KEY_V],
 		"switch": [KEY_TAB],
+		"paw_left": [KEY_J],
+		"paw_right": [KEY_L],
+		"paw_up": [KEY_I],
+		"paw_down": [KEY_K],
 	}
 	for action in keys:
 		if InputMap.has_action(action):
