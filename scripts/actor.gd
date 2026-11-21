@@ -12,18 +12,21 @@ const BUNNY := {
 	# Her T-posed model with a clean skeleton (tools/tpose_bunny.gd makes it from the Sketchfab file).
 	"path": "res://assets/chobby_tpose.glb", "height": 1.6, "sole": 0.032,
 	"soft_press": true,   # lying down, her chest, belly and thighs give against the ground (per vertex)
+	"flesh": ["Object_11", "Object_672"],   # her butt, thighs and belly are soft and springy (SoftFlesh; the player asked): skin and shorts
 	"eye": Vector3(0, 0.10, 0.125),   # first person: from her head bone (measured on her face)
 	"walk": 1.5, "run": 3.4, "stride": 1.45, "run_stride": 2.5, "radius": 0.3,
 	# Her top and shorts take the skin's bone weights, so no gap opens when the chest moves.
 	# The leash lies over these instead of passing through: [from bone, to bone, radius m, reach past "to" m].
 	"capsules": [["DEF-spine", "DEF-spine.003", 0.14, 0.05], ["DEF-thigh.L", "DEF-thigh.R", 0.07, 0.0]],
-	# TOFU's paw stops against these (PawReach): [from bone, to bone, radius m, metres up, soft].
-	# Radii about the skin's 90th percentile round each bone (measured); her chest is soft: the paw
-	# sinks into it a little, the skin gives (SoftPress) and it wobbles (Gait.soft_poke).
+	# TOFU's paw stops against these (PawReach): [from bone, to bone, radius m, metres up, soft,
+	# flesh region (SoftFlesh: 0 her left butt and thigh, 1 right, 2 belly; -1 none)].
+	# Radii about the skin's 90th percentile round each bone (measured); soft parts let the paw
+	# sink in a little, the skin gives (SoftPress) and they wobble (Gait.soft_poke, flesh_push).
 	"touch": [
-		["DEF-spine", "DEF-spine.003", 0.13, 0.0, false], ["DEF-spine.003", "DEF-neck", 0.10, 0.0, false],
-		["DEF-head", "DEF-head", 0.13, 0.08, false], ["DEF-thigh.L", "DEF-thigh.R", 0.12, 0.0, false],
-		["DEF-thigh.L", "DEF-shin.L", 0.11, 0.0, false], ["DEF-thigh.R", "DEF-shin.R", 0.11, 0.0, false],
+		["DEF-spine", "DEF-spine.002", 0.13, 0.0, true, 2], ["DEF-spine.002", "DEF-spine.003", 0.13, 0.0, false],
+		["DEF-spine.003", "DEF-neck", 0.10, 0.0, false],
+		["DEF-head", "DEF-head", 0.13, 0.08, false], ["DEF-thigh.L", "DEF-spine", 0.12, 0.0, true, 0], ["DEF-thigh.R", "DEF-spine", 0.12, 0.0, true, 1],
+		["DEF-thigh.L", "DEF-shin.L", 0.11, 0.0, true, 0], ["DEF-thigh.R", "DEF-shin.R", 0.11, 0.0, true, 1],
 		["DEF-shin.L", "DEF-foot.L", 0.07, 0.0, false], ["DEF-shin.R", "DEF-foot.R", 0.07, 0.0, false],
 		["DEF-upper_arm.L", "DEF-forearm.L", 0.055, 0.0, false], ["DEF-upper_arm.R", "DEF-forearm.R", 0.055, 0.0, false],
 		["DEF-forearm.L", "DEF-hand.L", 0.045, 0.0, false], ["DEF-forearm.R", "DEF-hand.R", 0.045, 0.0, false],
@@ -121,6 +124,7 @@ var skeleton: Skeleton3D
 var face_target := Vector3.INF   ## when set, faces this point instead of the motion
 var extra_lean := 0.0
 var _press := []             ## soft-skin materials (SoftPress), when the character has them
+var _flesh_regions := []      ## SoftFlesh regions (her soft butt, thighs and belly), when she has them
 var paw_touch := Vector4.ZERO   ## another's paw pressing this skin: centre (world) and radius (0: none)
 var head_hidden := false     ## first person: the head (and all it carries) shrunk away
 var _model: Node3D
@@ -151,6 +155,11 @@ func _ready() -> void:
 			var c: MeshInstance3D = scene.find_child(n, true, false)
 			if skin_mi != null and c != null:
 				SkinFit.follow_body(skin_mi, c, data.cloth.get("skip", []), float(data.cloth.get("lift", SkinFit.INFLATE)))
+	var skels0 := scene.find_children("*", "Skeleton3D", true, false)
+	if data.has("flesh") and skels0.size() > 0:
+		var sk0: Skeleton3D = skels0[0]
+		var rel := body.global_transform.basis.inverse() * sk0.global_transform.basis
+		_flesh_regions = SoftFlesh.apply(scene, sk0, (rel.inverse() * Vector3.BACK).normalized(), (rel.inverse() * Vector3.RIGHT).normalized(), data.flesh)
 	if data.get("soft_press", false):
 		_press = SoftPress.apply(scene)   # soft skin against the ground, lying down
 	var skels := scene.find_children("*", "Skeleton3D", true, false)
@@ -165,6 +174,8 @@ func _ready() -> void:
 			gait.rt.height = float(data.height)
 		gait.walk_speed = data.walk
 		gait.run_speed = data.run
+		if not _flesh_regions.is_empty():
+			gait.set_flesh(_flesh_regions)
 
 
 ## Scale to `height` metres by the deform bones (+10% for the head above the top bone),
@@ -313,7 +324,7 @@ func touch_shapes() -> Array:
 			continue
 		var up := Vector3.UP * float(c[3])
 		out.append([skeleton.global_transform * skeleton.get_bone_global_pose(a).origin + up,
-			skeleton.global_transform * skeleton.get_bone_global_pose(b).origin + up, float(c[2]), bool(c[4])])
+			skeleton.global_transform * skeleton.get_bone_global_pose(b).origin + up, float(c[2]), bool(c[4]), int(c[5]) if c.size() > 5 else -1])
 	return out
 
 
@@ -357,6 +368,7 @@ func place(p: Vector3, delta: float) -> void:
 	p.y = Terrain.height(p.x, p.z)
 	var moved := Vector2(p.x - position.x, p.z - position.z)
 	speed = moved.length() / maxf(delta, 0.0001)
+	_tick_from = position
 	position = p
 	var look := Vector2.ZERO
 	if face_target != Vector3.INF:
@@ -367,7 +379,16 @@ func place(p: Vector3, delta: float) -> void:
 		rotation.y = lerp_angle(rotation.y, atan2(look.x, look.y), 1.0 - exp(-10.0 * delta))
 
 
+var _tick_from := Vector3.INF   ## where the last physics tick moved it from
+
+
 func _process(delta: float) -> void:
+	# The springs (chest, soft flesh) feel the body's motion smoothly between physics ticks: with
+	# more frames than ticks (a 90-120 Hz screen) it moves in steps, which hit them like blows
+	# (the flesh hung at its limit). They get where it would be, eased between the ticks.
+	if _tick_from != Vector3.INF:
+		var frac := Engine.get_physics_interpolation_fraction()
+		gait.motion_fix = (_tick_from - position) * (1.0 - frac)
 	if skeleton != null:
 		animate(delta, speed)
 
@@ -398,6 +419,11 @@ func animate(delta: float, spd: float) -> void:
 			m.set_shader_parameter("floor_y", global_position.y)
 			m.set_shader_parameter("press", k)
 			m.set_shader_parameter("paw", paw_touch)
+			if not _flesh_regions.is_empty():
+				m.set_shader_parameter("flesh_on", 1.0)
+				m.set_shader_parameter("flesh_l", gait.flesh_offset[0])
+				m.set_shader_parameter("flesh_r", gait.flesh_offset[1])
+				m.set_shader_parameter("flesh_b", gait.flesh_offset[2])
 	body.rotation.x = lerpf(body.rotation.x, gait.body_lean(), 1.0 - exp(-8.0 * delta))
 	if landed != 0:
 		footstep.emit(gait.foot_position(landed > 0), float(data.height) / 1.6)

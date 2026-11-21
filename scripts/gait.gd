@@ -24,6 +24,9 @@ var paw_target := Vector3.INF   ## set by the game: where the right paw's centre
 var paw_off := 0.1              ## the paw's centre is this far past the wrist, along the forearm
 var soft_poke := Vector4.ZERO   ## set by the game: a paw (centre, radius) the soft parts' tips are pushed out of
 var soft_poke_vel := Vector3.ZERO   ## ... and how fast it moves (m/s)
+var motion_fix := Vector3.ZERO  ## set by the actor: its position eased between physics ticks minus where it is (springs only)
+var flesh_push := [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]     ## set by the game: a paw pressing each flesh region (world metres)
+var flesh_offset := [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]   ## out: how far each flesh region is moved now (for the shader)
 var crawling := false      ## set by the game: under something low, crawl (army crawl)
 var crawl := 0.0           ## 0..1 eased: how far down into the crawl
 var crawl_lift := 0.0      ## metres the body is raised lying down (a thick body would sink: "crawl_lift")
@@ -340,6 +343,7 @@ func update(delta: float, measured: float) -> int:
 	_paw_reach(delta)
 	_crawl_ground()
 	_soft_parts(delta)
+	_flesh_springs(delta)
 
 	if rt != null:
 		return clip_landed
@@ -418,7 +422,7 @@ func _soft_parts(delta: float) -> void:
 		var tip: int = part[1]
 		skeleton.set_bone_pose_rotation(root, _q[root])
 		var g_root := skeleton.get_bone_global_pose(root)
-		var anchor := skeleton.global_transform * skeleton.get_bone_global_pose(tip).origin
+		var anchor := skeleton.global_transform * skeleton.get_bone_global_pose(tip).origin + motion_fix
 		if not part[4]:
 			part[2] = anchor
 			part[3] = Vector3.ZERO
@@ -432,7 +436,7 @@ func _soft_parts(delta: float) -> void:
 		# Damping acts on the motion relative to the body: steady walking leaves no lag,
 		# only pushes (steps, starts, stops, turns) do.
 		for i in steps:
-			var a_now := from.lerp(anchor, float(i + 1) / steps)
+			var a_now := from.lerp(anchor, float(i) / steps)   # where the anchor is at the start of the substep: taken at its end, the mass ran a substep ahead (1.2 cm walking, 2.8 running)
 			v += (w * w * (a_now - x) - 2.0 * SOFT_DAMP * w * (v - v_anchor)) * dt
 			x += v * dt
 		var lag := x - anchor
@@ -468,8 +472,8 @@ func _soft_parts(delta: float) -> void:
 			var floor_y := (_body.get_parent() as Node3D).global_position.y + SOFT_FLOOR * _height_hint
 			if x.y < floor_y:
 				x.y = floor_y
-		var base := (to_sk * anchor) - g_root.origin
-		var moved := (to_sk * x) - g_root.origin
+		var base := (to_sk * (anchor - motion_fix)) - g_root.origin   # back where the skeleton is now
+		var moved := (to_sk * (x - motion_fix)) - g_root.origin
 		if base.length() < 1e-6:
 			continue
 		var q := _arc(base.normalized(), moved.normalized())
@@ -478,6 +482,68 @@ func _soft_parts(delta: float) -> void:
 
 
 var _height_hint := 1.6    ## character height in metres (set by the actor)
+
+
+## Soft flesh with no bones (SoftFlesh: her butt-and-thigh on each side, her belly): a spring per
+## region riding on a bone; it lags behind the body's jolts (steps, starts, stops, each pull of
+## the crawl), firmer and smaller than her chest; a paw pressing it moves it out of the way and
+## it swings back after. Only the offsets go out (the shader moves the skin).
+const FLESH_FREQ := 5.0     ## oscillations per second: firmer than the chest's 2.0; at 4 a run reached its limit every step
+const FLESH_DAMP := 0.35
+const FLESH_MAX := 0.011    ## largest lag shown, share of height (about 1.8 cm on her)
+const FLESH_PUSH := 0.6     ## share of a paw's press the whole region gives (the rest: a local dent)
+const FLESH_PUSH_MAX := 0.03
+
+var _flesh := []   ## [bone, local, mass pos, mass vel, ready, last anchor]
+
+
+func set_flesh(regions: Array) -> void:
+	_flesh.clear()
+	for r in regions:
+		_flesh.append([r.bone, r.local, Vector3.ZERO, Vector3.ZERO, false, Vector3.ZERO])
+
+
+func _flesh_springs(delta: float) -> void:
+	if _flesh.is_empty():
+		return
+	var w := TAU * FLESH_FREQ
+	var reach := FLESH_MAX * _height_hint / SOFT_GAIN
+	var steps := maxi(1, ceili(delta / (1.0 / 120.0)))
+	var dt := delta / steps
+	for k in _flesh.size():
+		var part: Array = _flesh[k]
+		if part[0] < 0:
+			continue
+		var push: Vector3 = (flesh_push[k] as Vector3).limit_length(FLESH_PUSH_MAX) * FLESH_PUSH
+		var anchor: Vector3 = skeleton.global_transform * (skeleton.get_bone_global_pose(part[0]) * (part[1] as Vector3)) + motion_fix
+		if not part[4]:
+			part[2] = anchor
+			part[3] = Vector3.ZERO
+			part[4] = true
+			part[5] = anchor
+		var x: Vector3 = part[2]
+		var v: Vector3 = part[3]
+		var from: Vector3 = part[5]
+		var v_anchor := (anchor - from) / maxf(delta, 0.0001)
+		part[5] = anchor
+		for i in steps:
+			var a_now := from.lerp(anchor, float(i) / steps)   # where the anchor is at the start of the substep: taken at its end, the mass ran a substep ahead (1.2 cm walking, 2.8 running) + push
+			v += (w * w * (a_now - x) - 2.0 * FLESH_DAMP * w * (v - v_anchor)) * dt
+			x += v * dt
+		var lag := x - (anchor + push)
+		if lag.length() > reach:
+			var out := lag.normalized()
+			lag = out * reach
+			x = anchor + push + lag
+			v -= out * maxf((v - v_anchor).dot(out), 0.0)
+		part[2] = x
+		part[3] = v
+		flesh_offset[k] = push + lag * SOFT_GAIN
+
+
+## How far each flesh region is moved now (for tests).
+func flesh_lag() -> Array:
+	return flesh_offset.duplicate()
 
 
 ## Vertical bob of the whole body, metres per metre of height: low when a foot lands.

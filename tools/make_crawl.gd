@@ -16,6 +16,10 @@ const STRIDE := 0.64        ## metres the body moves per cycle (clip's own size)
 const HIPS_Y := 0.16        ## hips above the ground, lying
 const ARCH := [0.10, 0.16, 0.18]   ## spine.001-.003 bent up (chest on the forearms), radians
 const HEAD_UP := [0.45, 0.5]       ## neck, head lifted to look ahead
+const HIP_ROLL := 0.22      ## radians the pelvis rolls: the side whose knee draws up lifts, the weight
+                            ## goes onto the other hip (the player asked to study the hips: 0.07, and a
+                            ## quarter cycle late, read as stiff)
+const CHEST_KEEP := 0.6     ## share of that roll the ribcage turns back (the shoulders stay level)
 
 var sk: Skeleton3D
 var up := Vector3.UP
@@ -109,7 +113,8 @@ func _pose(p: float, move: float, breath := 0.0) -> void:
 	# Lying face down, along +Z: tip the hips forward a quarter turn and set them low.
 	var hips := _b("DEF-hips")
 	var prone := Quaternion(left, PI * 0.5)
-	var roll := 0.07 * move * sin(p * TAU)                  # rolls toward the drawn-up knee
+	# The right knee is drawn up furthest at p = 0, the left at p = 0.5: that side's hip lifts.
+	var roll := -HIP_ROLL * move * cos(p * TAU)
 	_set_rot(hips, Quaternion(fwd, roll) * prone * _rot(hips))
 	var par := sk.get_bone_parent(hips)
 	var to_par := (to_w * (Transform3D.IDENTITY if par < 0 else sk.get_bone_global_pose(par))).affine_inverse()
@@ -120,6 +125,8 @@ func _pose(p: float, move: float, breath := 0.0) -> void:
 		var b := _b(spine[k])
 		_turn(b, Quaternion(left, -float(ARCH[k]) - 0.01 * sin(breath * TAU)))
 		_turn(b, Quaternion(up, 0.05 * move * sin(p * TAU)))
+		if k == 0:
+			_turn(b, Quaternion(fwd, -roll * CHEST_KEEP))   # the ribcage turns most of the hips' roll back
 	_turn(_b("DEF-neck"), Quaternion(left, -float(HEAD_UP[0])))
 	_turn(_b("DEF-head"), Quaternion(left, -float(HEAD_UP[1])))
 	# Arms: the forearm lies on the ground, the hand ahead of the elbow, a little inward.
@@ -141,8 +148,9 @@ func _pose(p: float, move: float, breath := 0.0) -> void:
 		var hip := _at("DEF-thigh." + s[0])
 		var out: Vector3 = left * s[1]
 		var base := Vector3(hip.x, 0.0, hip.z)
-		var knee := base + out * lerpf(0.06, 0.32, f) + fwd * lerpf(-0.42, 0.02, f) + up * (0.07 + lift)
-		var foot := base + out * lerpf(0.07, 0.22, f) + fwd * lerpf(-0.84, -0.36, f) + up * (0.09 + lift)
+		# Drawn up, the thigh lies on its inner side: knee and foot low by the ground.
+		var knee := base + out * lerpf(0.06, 0.32, f) + fwd * lerpf(-0.42, 0.02, f) + up * (lerpf(0.07, 0.045, f) + lift)
+		var foot := base + out * lerpf(0.07, 0.22, f) + fwd * lerpf(-0.84, -0.36, f) + up * (lerpf(0.09, 0.06, f) + lift)
 		_ik("DEF-thigh." + s[0], "DEF-shin." + s[0], "DEF-foot." + s[0], foot, knee + up * 0.05)
 		# The foot: toes back and down when stretched, on its inner side when drawn up.
 		var toe_dir := (-fwd * 0.9 - up * 0.3).lerp(-fwd * 0.4 - out * 0.7 - up * 0.2, f)   # paws nearly flat, not dug in

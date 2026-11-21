@@ -14,13 +14,24 @@ uniform float floor_y = -1000.0;   // the ground under the character, world metr
 uniform float press = 0.0;         // 0..1: how much it gives (lying down)
 uniform float band = 0.05;         // metres above the ground where the giving starts
 uniform float bulge = 0.5;         // sideways spread per metre squeezed up
+uniform vec3 flesh_l = vec3(0.0); // her soft flesh (SoftFlesh): how far each region is moved now, world metres;
+uniform vec3 flesh_r = vec3(0.0); // each vertex follows its shares of them (CUSTOM0 r, g, b)
+uniform vec3 flesh_b = vec3(0.0);
+uniform float flesh_on = 0.0;
 uniform vec4 paw = vec4(0.0);      // a paw: centre (world metres) and radius; w = 0: none
 uniform float paw_band = 0.02;     // metres round the paw where the skin starts to give
 
 void vertex() {
-	if (press > 0.001 || paw.w > 0.0) {
+	if (press > 0.001 || paw.w > 0.0 || flesh_on > 0.5) {
 		vec3 w = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 		bool moved = false;
+		if (flesh_on > 0.5) {
+			vec3 f = CUSTOM0.r * flesh_l + CUSTOM0.g * flesh_r + CUSTOM0.b * flesh_b;
+			if (dot(f, f) > 0.0) {
+				w += f;   // first: the flesh moves, then the ground and a paw push it back out
+				moved = true;
+			}
+		}
 		float top = floor_y + band;
 		float d = top - w.y;
 		if (press > 0.001 && d > 0.0) {

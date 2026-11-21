@@ -254,6 +254,19 @@ func _paw(delta: float) -> void:
 	else:
 		tofu.gait.paw_target = Vector3.INF
 	var pc := tofu.paw_center()
+	# Her soft flesh under the paw: each region pressed moves out of the way (Gait.flesh_push).
+	var push := [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]
+	if tofu.gait.paw_out() > 0.01 and pc != Vector3.INF:
+		for s in bunny.touch_shapes():
+			if s[4] < 0:
+				continue
+			var ab: Vector3 = s[1] - s[0]
+			var t := clampf((pc - s[0]).dot(ab) / maxf(ab.length_squared(), 1e-9), 0.0, 1.0)
+			var near: Vector3 = s[0] + ab * t
+			var depth := float(s[2]) + float(paw.r) - pc.distance_to(near)
+			if depth > 0.0 and pc.distance_to(near) > 1e-5:
+				push[s[4]] += (near - pc).normalized() * depth
+	bunny.gait.flesh_push = push
 	if tofu.gait.paw_out() > 0.01 and pc != Vector3.INF:
 		var vel := (pc - _paw_prev) / delta if _paw_prev != Vector3.INF else Vector3.ZERO
 		bunny.paw_touch = Vector4(pc.x, pc.y, pc.z, float(paw.r))
