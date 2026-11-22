@@ -61,6 +61,7 @@ func _ready() -> void:
 	explore.found.connect(func(f): puffs.puff(Vector3(f.pos.x, Terrain.height(f.pos.x, f.pos.y), f.pos.y), 2.0))   # found: a puff there
 	passages = LowPassages.place(4242, marks.reserved)
 	WorldBuilder.populate(self, obstacles, 20261120, LowPassages.reserved(passages) + marks.reserved)
+	Foliage.grow(self)   # grass and flowers in the wind
 	LowPassages.build(self, obstacles, passages)
 	_passage_caps = LowPassages.capsules(passages)
 	var sea := Water.new()
@@ -140,6 +141,10 @@ func _ready() -> void:
 	camera_rig.buttons = [view_button, switch_button, arm_stick, sit_button, jump_button, pause_button]
 	camera_rig.stick_zone = TouchJoystick.ZONE
 	add_child(camera_rig)
+	var leaves := Leaves.new()
+	leaves.name = "Leaves"
+	leaves.follow = camera_rig
+	add_child(leaves)
 
 
 func _unhandled_input(event: InputEvent) -> void:

@@ -55,16 +55,30 @@ static func _anywhere(rng: RandomNumberGenerator) -> Vector2:
 ## with a bush here and there, the beaches shells and starfish at the water, rocks on the rocky
 ## shore and the steep slopes; nothing on the paths.
 ## `reserved`: places to leave free, [Vector3(x, z, radius)] (the low passages).
+## Where the trees stand (x, z), for the tests (a MultiMesh keeps no transforms without a screen).
+static var trees_at := PackedVector2Array()
+
 static func populate(root: Node3D, obs: Obstacles, seed_value := 20261120, reserved: Array = []) -> void:
+	trees_at.clear()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
-	var kinds := {"palm": [], "bush": [], "rock": []}
-	var spacing := {"palm": 4.0, "bush": 2.4, "rock": 2.6}
-	var block := {"palm": 0.32, "bush": 0.75, "rock": 0.8}
+	var kinds := {"palm": [], "bush": [], "rock": [], "tree_a": [], "tree_b": [], "trees": []}
+	var spacing := {"palm": 4.0, "bush": 2.4, "rock": 2.6, "tree_a": 3.0, "tree_b": 3.0, "trees": 6.0}
+	var block := {"palm": 0.32, "bush": 0.75, "rock": 0.8, "tree_a": 0.4, "tree_b": 0.45, "trees": 1.6}
 	var taken := Obstacles.new()   # placement spacing, a separate grid
 	var clear := clearing_center()
-	for i in range(60000):
-		var q := _anywhere(rng)
+	# The woods first, cell by cell, so they are thick (Herm's are small: a random scatter over
+	# the whole island left them a few trees each).
+	var d := Terrain.data()
+	var m: Dictionary = d.meta
+	var wood_spots: Array[Vector2] = []
+	for j in int(m.nz):
+		for i in int(m.nx):
+			if d.kind[j * int(m.nx) + i] == 3:
+				for t in 2:
+					wood_spots.append(Vector2(float(m.x0) + (i + rng.randf() - 0.5) * float(m.cell), float(m.z0) + (j + rng.randf() - 0.5) * float(m.cell)))
+	for i in range(60000 + wood_spots.size()):
+		var q := wood_spots[i] if i < wood_spots.size() else _anywhere(rng)
 		var x := q.x
 		var z := q.y
 		var sd := Terrain.shore_distance(x, z)
@@ -86,17 +100,19 @@ static func populate(root: Node3D, obs: Obstacles, seed_value := 20261120, reser
 		elif steep and sd >= 0.0:
 			kind = "rock" if roll < 0.25 else ""         # outcrops on the slopes
 		elif k == 3:
-			kind = "palm" if roll < 0.35 else ("bush" if roll < 0.9 else "")   # woods
+			# Herm's woods are broadleaf: KayKit's trees, now and then a clump of them, bushes under.
+			kind = "tree_a" if roll < 0.3 else ("tree_b" if roll < 0.55 else ("trees" if roll < 0.62 else ("bush" if roll < 0.9 else "")))
 		elif k == 4:
 			kind = "bush" if roll < 0.7 else ""          # scrub
 		elif k == 1:
-			kind = "bush" if roll < 0.035 else ("palm" if roll < 0.045 else "")   # a bush here and there on the meadows
+			kind = "bush" if roll < 0.035 else ("palm" if roll < 0.042 else ("tree_b" if roll < 0.047 else ""))   # a bush, a palm or a tree here and there on the meadows
 		if kind == "" or Terrain.near_path(x, z, 1.6):
 			continue
 		var sp: float = spacing[kind]
 		var crowded := false
+		var crowd := 0.45 if kind.begins_with("tree") else 0.6   # crowns may touch in a wood
 		for o in taken.near(x, z, sp):
-			if Vector2(o.x, o.y).distance_to(Vector2(x, z)) < (sp + o.z) * 0.6:
+			if Vector2(o.x, o.y).distance_to(Vector2(x, z)) < (sp + o.z) * crowd:
 				crowded = true
 				break
 		if crowded:
@@ -135,8 +151,25 @@ static func populate(root: Node3D, obs: Obstacles, seed_value := 20261120, reser
 				shells.append(t)
 			else:
 				stars.append(t)
-	_add_chunked(root, "Palms", palm_mesh(rng), kinds["palm"])
-	_add_chunked(root, "Bushes", bush_mesh(rng), kinds["bush"])
+	_add_chunked(root, "Palms", palm_mesh(rng), kinds["palm"], true, Foliage.material("palm"))
+	_add_chunked(root, "Bushes", bush_mesh(rng), kinds["bush"], true, Foliage.material("bush"))
+	# Broadleaf trees in paper, three shapes; a "clump" is three of them close together.
+	var shapes := [Foliage.tree_mesh(rng), Foliage.tree_mesh(rng), Foliage.tree_mesh(rng)]
+	var by_shape := [[], [], []]
+	for x in kinds["tree_a"]:
+		by_shape[0].append(x)
+	for x in kinds["tree_b"]:
+		by_shape[1].append(x)
+	for x in kinds["trees"]:
+		for i in 3:
+			var o := Vector3(cos(i * 2.1), 0, sin(i * 2.1)) * 2.6
+			var t2 := Transform3D(x.basis, x.origin + o)
+			t2.origin.y = Terrain.height(t2.origin.x, t2.origin.z) - 0.08
+			by_shape[2].append(t2)
+	for i in 3:
+		_add_chunked(root, "Trees", shapes[i], by_shape[i], true, Foliage.material("tree_paper"))
+		for t in by_shape[i]:
+			trees_at.append(Vector2(t.origin.x, t.origin.z))
 	_add_chunked(root, "Rocks", rock_mesh(rng), kinds["rock"])
 	_add_chunked(root, "DuneGrass", tuft_mesh(rng), tufts, false)
 	_add_chunked(root, "Shells", shell_mesh(), shells, false)
@@ -144,7 +177,7 @@ static func populate(root: Node3D, obs: Obstacles, seed_value := 20261120, reser
 
 
 ## One MultiMesh per CHUNK cell, faded out with distance.
-static func _add_chunked(root: Node3D, node_name: String, mesh: Mesh, xforms: Array, shadows := true) -> void:
+static func _add_chunked(root: Node3D, node_name: String, mesh: Mesh, xforms: Array, shadows := true, mat: Material = null) -> void:
 	var cells := {}
 	for t in xforms:
 		var k := Vector2i(floori(t.origin.x / CHUNK), floori(t.origin.z / CHUNK))
@@ -164,7 +197,7 @@ static func _add_chunked(root: Node3D, node_name: String, mesh: Mesh, xforms: Ar
 			mm.set_instance_transform(i, list[i])
 		var mmi := MultiMeshInstance3D.new()
 		mmi.multimesh = mm
-		mmi.material_override = PaperMesh.material()
+		mmi.material_override = mat if mat != null else PaperMesh.material()
 		mmi.visibility_range_end = SEEN_TO
 		mmi.visibility_range_end_margin = 6.0
 		mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED

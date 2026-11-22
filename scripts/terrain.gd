@@ -131,15 +131,48 @@ static func build_meshes() -> Array[MeshInstance3D]:
 	var per := int(CHUNK / step)
 	var hs := data().height
 	var ks := data().kind
+	# Each point's colour once (its kind, height and slope, and big lighter and darker patches
+	# so a meadow is not one flat green), then each softened with its neighbours'.
+	var patches := FastNoiseLite.new()
+	patches.seed = 5
+	patches.frequency = 0.035
+	patches.fractal_octaves = 3
+	var norms := PackedVector3Array()
+	norms.resize(nx * nz)
+	var base := PackedColorArray()
+	base.resize(nx * nz)
+	for j in nz:
+		for i in nx:
+			var k := j * nx + i
+			var hl := hs[j * nx + maxi(i - 1, 0)]
+			var hr := hs[j * nx + mini(i + 1, nx - 1)]
+			var hd := hs[maxi(j - 1, 0) * nx + i]
+			var hu := hs[mini(j + 1, nz - 1) * nx + i]
+			var n := Vector3(hl - hr, 2.0 * step, hd - hu).normalized()
+			norms[k] = n
+			var c := ground_color(hs[k], n, ks[k])
+			if ks[k] == 1 or ks[k] == 3 or ks[k] == 4 or ks[k] == 5:
+				var v := patches.get_noise_2d(i * step, j * step)
+				c = c.lerp(PaperMesh.col("#b5c96a"), maxf(v, 0.0) * 0.45).darkened(maxf(-v, 0.0) * 0.25)
+			base[k] = c
+	var cols := PackedColorArray()
+	cols.resize(nx * nz)
+	for j in nz:
+		for i in nx:
+			var c := Color(0, 0, 0)
+			for dj in [-1, 0, 1]:
+				for di in [-1, 0, 1]:
+					c += base[clampi(j + dj, 0, nz - 1) * nx + clampi(i + di, 0, nx - 1)]
+			cols[j * nx + i] = c / 9.0
 	for cz in range(0, nz - 1, per):
 		for cx in range(0, nx - 1, per):
-			var mi := _chunk(cx, cz, mini(cx + per, nx - 1), mini(cz + per, nz - 1), nx, step, float(m.x0), float(m.z0), hs, ks)
+			var mi := _chunk(cx, cz, mini(cx + per, nx - 1), mini(cz + per, nz - 1), nx, step, float(m.x0), float(m.z0), hs, norms, cols)
 			if mi != null:
 				out.append(mi)
 	return out
 
 
-static func _chunk(i0: int, j0: int, i1: int, j1: int, nx: int, step: float, x0: float, z0: float, hs: PackedFloat32Array, ks: PackedByteArray) -> MeshInstance3D:
+static func _chunk(i0: int, j0: int, i1: int, j1: int, nx: int, step: float, x0: float, z0: float, hs: PackedFloat32Array, ns: PackedVector3Array, cs: PackedColorArray) -> MeshInstance3D:
 	var verts := PackedVector3Array()
 	var norms := PackedVector3Array()
 	var cols := PackedColorArray()
@@ -147,24 +180,10 @@ static func _chunk(i0: int, j0: int, i1: int, j1: int, nx: int, step: float, x0:
 	var w := i1 - i0 + 1
 	for j in range(j0, j1 + 1):
 		for i in range(i0, i1 + 1):
-			var y := hs[j * nx + i]
-			var hl := hs[j * nx + maxi(i - 1, 0)]
-			var hr := hs[j * nx + mini(i + 1, nx - 1)]
-			var hd := hs[maxi(j - 1, 0) * nx + i]
-			var hu := hs[mini(j + 1, hs.size() / nx - 1) * nx + i]
-			var n := Vector3(hl - hr, 2.0 * step, hd - hu).normalized()
-			verts.append(Vector3(x0 + i * step, y, z0 + j * step))
-			norms.append(n)
-			# Blend the neighbours' kinds so the edges between them are soft.
-			var c := Color(0, 0, 0)
-			var cnt := 0
-			for dj in [-1, 0, 1]:
-				for di in [-1, 0, 1]:
-					var ii := clampi(i + di, 0, nx - 1)
-					var jj := clampi(j + dj, 0, hs.size() / nx - 1)
-					c += ground_color(y, n, ks[jj * nx + ii])
-					cnt += 1
-			cols.append(c / cnt)
+			var k := j * nx + i
+			verts.append(Vector3(x0 + i * step, hs[k], z0 + j * step))
+			norms.append(ns[k])
+			cols.append(cs[k])
 	for j in range(j1 - j0):
 		for i in range(i1 - i0):
 			var p00 := j * w + i
@@ -189,6 +208,7 @@ static func _chunk(i0: int, j0: int, i1: int, j1: int, nx: int, step: float, x0:
 	mi.name = "Ground"
 	mi.mesh = mesh
 	mi.material_override = PaperMesh.material()
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF   # it takes shadows; casting them redrew the whole piece in the shadow pass (60k triangles)
 	return mi
 
 
@@ -235,6 +255,34 @@ static func nearest_reachable(p: Vector2, inland := 2.0, reach := 40.0) -> Vecto
 			if reachable(q.x, q.y) and shore_distance(q.x, q.y) >= inland:
 				return q
 	return Vector2.INF
+
+
+## Is (x, z) on a path's strip (or within 0.3 m of it)? A 1 m raster of the strips, made once
+## (the grass asks this tens of thousands of times).
+static var _on_path := PackedByteArray()
+static var _op_n := Vector2i.ZERO
+
+static func on_path(x: float, z: float) -> bool:
+	var r := bounds()
+	if _on_path.is_empty():
+		_op_n = Vector2i(ceili(r.size.x) + 1, ceili(r.size.y) + 1)
+		_on_path.resize(_op_n.x * _op_n.y)
+		for p in data().meta.paths:
+			var half := Trails.width(p) * 0.5 + 0.3
+			var pts := Trails.resample(p.pts, 0.5)
+			for q: Vector2 in pts:
+				for dj in range(-ceili(half), ceili(half) + 1):
+					for di in range(-ceili(half), ceili(half) + 1):
+						if Vector2(di, dj).length() <= half + 0.5:
+							var ix := floori(q.x - r.position.x) + di
+							var iz := floori(q.y - r.position.y) + dj
+							if ix >= 0 and iz >= 0 and ix < _op_n.x and iz < _op_n.y:
+								_on_path[iz * _op_n.x + ix] = 1
+	var ix := floori(x - r.position.x)
+	var iz := floori(z - r.position.y)
+	if ix < 0 or iz < 0 or ix >= _op_n.x or iz >= _op_n.y:
+		return false
+	return _on_path[iz * _op_n.x + ix] == 1
 
 
 ## Where the paths run (for keeping trees, rocks and trunks off them): segments in a 8 m grid.
