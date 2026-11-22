@@ -58,6 +58,14 @@ static func tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, color: Colo
 		st.add_vertex(v)
 
 
+## A flat four-sided face (two triangles) a-b-c-d, facing away from `inside` (by default, up).
+static func quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, color: Color, inside := Vector3.INF) -> void:
+	var mid := (a + b + c + d) * 0.25
+	var ins := inside if inside != Vector3.INF else mid - Vector3.UP
+	tri(st, a, b, c, color, ins)
+	tri(st, a, c, d, color, ins)
+
+
 ## Low-poly ellipsoid. `jitter` moves inner rings in and out for a hand-folded look.
 static func ellipsoid(st: SurfaceTool, xf: Transform3D, radii: Vector3, segs: int, rings: int,
 		color: Color, jitter := 0.0, rng: RandomNumberGenerator = null) -> void:

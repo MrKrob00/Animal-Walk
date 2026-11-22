@@ -21,52 +21,78 @@ const STARFISH := "#ea8a5c"
 const CHUNK := 32.0         ## metres per MultiMesh piece
 const SEEN_TO := 60.0       ## pieces fade out beyond this distance from the camera
 
-## The start, on the north beach: nothing grows right there.
+## The start: Herm Harbour, where the boat comes in, a few metres up from the water.
 static func clearing_center() -> Vector2:
-	return Vector2(0.0, -Terrain.shore(-PI * 0.5) * 0.92)
+	if _start == Vector2.INF:
+		var h := Vector2.ZERO
+		for p in Terrain.data().meta.places:
+			if p.name == "Herm Harbour":
+				h = Vector2(p.x, p.z)
+		# Up the slope from the harbour's mark until there are a few metres of dry land.
+		var best := h
+		for r in range(0, 40, 2):
+			for a in 16:
+				var q := h + Vector2.from_angle(a * TAU / 16.0) * r
+				if Terrain.shore_distance(q.x, q.y) > 6.0 and Terrain.normal(q.x, q.y).y > 0.97 and not Terrain.near_path(q.x, q.y, 1.0):
+					_start = q
+					return _start
+		_start = best
+	return _start
+
+static var _start := Vector2.INF
 
 const CLEARING_RADIUS := 7.0
 
 
-## Fills `root`; obstacles go into `obs`.
+## A random point on the island's grid.
+static func _anywhere(rng: RandomNumberGenerator) -> Vector2:
+	var r := Terrain.bounds()
+	return Vector2(r.position.x + rng.randf() * r.size.x, r.position.y + rng.randf() * r.size.y)
+
+
+## Fills `root`; obstacles go into `obs`. Plants by what the ground is (OpenStreetMap's woods,
+## scrub, meadows and beaches): woods are bushes and trees, scrub bushes, the meadows grass tufts
+## with a bush here and there, the beaches shells and starfish at the water, rocks on the rocky
+## shore and the steep slopes; nothing on the paths.
 ## `reserved`: places to leave free, [Vector3(x, z, radius)] (the low passages).
 static func populate(root: Node3D, obs: Obstacles, seed_value := 20261120, reserved: Array = []) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
-	var groves := FastNoiseLite.new()
-	groves.seed = 77
-	groves.frequency = 0.035
 	var kinds := {"palm": [], "bush": [], "rock": []}
 	var spacing := {"palm": 4.0, "bush": 2.4, "rock": 2.6}
 	var block := {"palm": 0.32, "bush": 0.75, "rock": 0.8}
 	var taken := Obstacles.new()   # placement spacing, a separate grid
 	var clear := clearing_center()
-	for i in range(14000):
-		var ang := rng.randf() * TAU
-		var d := sqrt(rng.randf()) * 1.03
-		var x := cos(ang) * d * Terrain.shore(ang)
-		var z := sin(ang) * d * Terrain.shore(ang)
-		if Vector2(x, z).distance_to(clear) < CLEARING_RADIUS:
+	for i in range(60000):
+		var q := _anywhere(rng)
+		var x := q.x
+		var z := q.y
+		var sd := Terrain.shore_distance(x, z)
+		if sd < -2.5 or q.distance_to(clear) < CLEARING_RADIUS:
 			continue
 		var kept_free := false
 		for r in reserved:
-			if Vector2(x, z).distance_to(Vector2(r.x, r.y)) < r.z:
+			if q.distance_to(Vector2(r.x, r.y)) < r.z:
 				kept_free = true
 		if kept_free:
 			continue
 		var y := Terrain.height(x, z)
+		var k := Terrain.kind(x, z)
+		var steep := Terrain.normal(x, z).y < 0.8
+		var kind := ""
 		var roll := rng.randf()
-		var kind := "palm" if roll < 0.46 else ("bush" if roll < 0.9 else "rock")
-		match kind:
-			"palm":   # in groves, on the beach and low ground
-				if y < 0.1 or y > 2.0 or groves.get_noise_2d(x, z) < 0.05:
-					continue
-			"bush":   # on the hill meadows
-				if y < 1.3 or d > Terrain.BEACH:
-					continue
-			"rock":   # at the water's edge and as outcrops on the hills
-				if y < -0.4 or (y > 0.35 and y < 2.2):
-					continue
+		if sd < 2.5 and k != 2 and y > -0.4:
+			kind = "rock" if roll < 0.5 else ""          # the rocky shore
+		elif steep and sd >= 0.0:
+			kind = "rock" if roll < 0.25 else ""         # outcrops on the slopes
+		elif k == 3:
+			kind = "palm" if roll < 0.35 else ("bush" if roll < 0.9 else "")   # woods
+		elif k == 4:
+			kind = "bush" if roll < 0.7 else ""          # scrub
+		elif k == 1:
+			kind = "bush" if roll < 0.035 else ("palm" if roll < 0.045 else "")   # a bush here and there on the meadows
+		if kind == "" or Terrain.near_path(x, z, 1.6):
+			continue
 		var sp: float = spacing[kind]
 		var crowded := false
 		for o in taken.near(x, z, sp):
@@ -78,7 +104,7 @@ static func populate(root: Node3D, obs: Obstacles, seed_value := 20261120, reser
 		var s := rng.randf_range(0.85, 1.25)
 		var basis := Basis(Vector3.UP, rng.randf() * TAU)
 		if kind == "rock":
-			s = rng.randf_range(0.45, 1.1) * (1.6 if y > 2.0 else 1.0)   # bigger outcrops on the hills
+			s = rng.randf_range(0.45, 1.1) * (1.6 if steep else 1.0)   # bigger outcrops on the slopes
 			basis = basis.scaled(Vector3(s * rng.randf_range(0.8, 1.2), s * rng.randf_range(0.7, 1.1), s * rng.randf_range(0.8, 1.2)))
 		else:
 			basis = basis.scaled(Vector3.ONE * s)
@@ -89,16 +115,21 @@ static func populate(root: Node3D, obs: Obstacles, seed_value := 20261120, reser
 	var tufts: Array = []
 	var shells: Array = []
 	var stars: Array = []
-	for i in range(9000):
-		var ang := rng.randf() * TAU
-		var d := sqrt(rng.randf()) * 1.0
-		var x := cos(ang) * d * Terrain.shore(ang)
-		var z := sin(ang) * d * Terrain.shore(ang)
+	for i in range(40000):
+		var q := _anywhere(rng)
+		var x := q.x
+		var z := q.y
+		var sd := Terrain.shore_distance(x, z)
+		if sd < 0.0 or Terrain.near_path(x, z, 0.8):
+			continue
 		var y := Terrain.height(x, z)
+		var k := Terrain.kind(x, z)
 		var basis := Basis(Vector3.UP, rng.randf() * TAU)
-		if d < 0.97 and y > 0.3 and i % 2 == 0:
+		if (k == 1 or k == 4) and i % 3 == 0:
 			tufts.append(Transform3D(basis.scaled(Vector3.ONE * rng.randf_range(0.7, 1.3)), Vector3(x, y - 0.04, z)))
-		elif d > 0.93 and y < 0.35 and y > 0.02 and i % 4 == 1:
+		elif k == 2 and sd > 6.0 and i % 4 == 0:
+			tufts.append(Transform3D(basis.scaled(Vector3.ONE * rng.randf_range(0.6, 1.0)), Vector3(x, y - 0.04, z)))   # dune grass
+		elif k == 2 and sd < 4.0 and y > 0.02 and i % 3 == 1:
 			var t := Transform3D(basis.scaled(Vector3.ONE * rng.randf_range(0.7, 1.2)), Vector3(x, y + 0.01, z))
 			if rng.randf() < 0.7:
 				shells.append(t)

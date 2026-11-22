@@ -21,6 +21,15 @@ All models are used under Creative Commons Attribution 4.0 (CC BY 4.0): https://
 
 The army crawl (`assets/anim/crawl.res`) is made for this project on the Universal Animation Library's skeleton.
 
-Everything else (terrain, trees, rocks, stake, shaders, code) is made for this project.
+## Map data
+
+| Data | Author | Source | Licence |
+|---|---|---|---|
+| Herm: coast, paths, walls, buildings, beaches, woods, place names (`assets/herm/herm.res`) | © OpenStreetMap contributors | https://www.openstreetmap.org/copyright | ODbL 1.0 |
+| Herm: heights (Copernicus DEM GLO-30) | © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA | https://spacedata.copernicus.eu/collections/copernicus-digital-elevation-model | Copernicus DEM licence (free use with this notice) |
+
+The island is Herm at 1:4, built from these by `tools/herm/`.
+
+Everything else (the ground mesh, trees, rocks, stake, shaders, code) is made for this project.
 
 - Agnes (a girl model with Mixamo rig): given to the player privately by its author for this project (no public licence). Only her blouse and sundress are used, refitted to the bunny (`assets/outfits/agnes/`).

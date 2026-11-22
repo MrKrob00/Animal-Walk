@@ -28,7 +28,7 @@ func add(pos: Vector3, yaw: float, size := 1.0) -> void:
 	var y := Terrain.height(pos.x, pos.z) + 0.02
 	var basis := Basis(Vector3.UP, yaw).scaled(Vector3.ONE * size)
 	multimesh.set_instance_transform(_next, Transform3D(basis, Vector3(pos.x, y, pos.z)))
-	var ground := Terrain.ground_color(y - 0.02, Terrain.normal(pos.x, pos.z))
+	var ground := Terrain.ground_color(y - 0.02, Terrain.normal(pos.x, pos.z), Terrain.kind(pos.x, pos.z))
 	multimesh.set_instance_color(_next, Color(ground.r * 0.8, ground.g * 0.78, ground.b * 0.74))
 	_next = (_next + 1) % MAX_PRINTS
 

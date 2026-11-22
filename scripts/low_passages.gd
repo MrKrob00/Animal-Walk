@@ -15,26 +15,29 @@ const NEAR_START := 10.0   ## one lies this far from the start, so the player me
 
 
 ## Where the passages lie: [{"c": Vector2 centre, "dir": Vector2 along the trunk, "y": float}].
+## On the island's meadows, woods and scrub, off its paths (a fallen trunk to find, not one that
+## blocks the way); the first near the start, so the player meets it early.
 static func place(seed_value := 4242) -> Array:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
 	var out := []
 	var start := WorldBuilder.clearing_center()
-	# The first: on the beach near the start, the trunk across the way along the beach.
-	for k in 40:
-		var ang := -PI * 0.5 + (0.06 + 0.01 * k) * (1.0 if k % 2 == 0 else -1.0)
-		var p := Vector2(cos(ang), sin(ang)) * Terrain.shore(ang) * 0.9
-		if p.distance_to(start) > NEAR_START * 0.7 and p.distance_to(start) < NEAR_START * 1.6 and _fits(p, Vector2(cos(ang), sin(ang)), out):
-			out.append({"c": p, "dir": Vector2(cos(ang), sin(ang)), "y": _ground(p, Vector2(cos(ang), sin(ang)))})
-			break
-	var tries := 0
-	while out.size() < COUNT and tries < 4000:
-		tries += 1
-		var ang := rng.randf() * TAU
-		var d := sqrt(rng.randf()) * 0.9
-		var p := Vector2(cos(ang), sin(ang)) * d * Terrain.shore(ang)
+	for k in 400:
+		var p := start + Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(NEAR_START * 0.7, NEAR_START * 1.6)
 		var dir := Vector2.from_angle(rng.randf() * PI)
-		if p.distance_to(start) < WorldBuilder.CLEARING_RADIUS + 2.0 or not _fits(p, dir, out):
+		if Terrain.shore_distance(p.x, p.y) > 2.0 and not Terrain.near_path(p.x, p.y, SPAN * 0.5 + 0.8) and _fits(p, dir, out):
+			out.append({"c": p, "dir": dir, "y": _ground(p, dir)})
+			break
+	var r := Terrain.bounds()
+	var tries := 0
+	while out.size() < COUNT and tries < 20000:
+		tries += 1
+		var p := Vector2(r.position.x + rng.randf() * r.size.x, r.position.y + rng.randf() * r.size.y)
+		var dir := Vector2.from_angle(rng.randf() * PI)
+		var k := Terrain.kind(p.x, p.y)
+		if not (k == 1 or k == 3 or k == 4) or Terrain.shore_distance(p.x, p.y) < 4.0:
+			continue
+		if p.distance_to(start) < WorldBuilder.CLEARING_RADIUS + 2.0 or Terrain.near_path(p.x, p.y, SPAN * 0.5 + 0.8) or not _fits(p, dir, out):
 			continue
 		out.append({"c": p, "dir": dir, "y": _ground(p, dir)})
 	return out
@@ -43,14 +46,14 @@ static func place(seed_value := 4242) -> Array:
 ## Dry, fairly flat, and clear of the other passages.
 static func _fits(p: Vector2, dir: Vector2, others: Array) -> bool:
 	for o in others:
-		if (o.c as Vector2).distance_to(p) < 14.0:
+		if (o.c as Vector2).distance_to(p) < 24.0:
 			return false
 	var hs := []
 	for t in [-0.5, 0.0, 0.5]:
 		for s in [-1.0, 1.0]:
 			var q: Vector2 = p + dir * SPAN * t + dir.orthogonal() * REACH * 1.5 * s
 			hs.append(Terrain.height(q.x, q.y))
-	return hs.min() > 0.12 and hs.max() - hs.min() < 0.35 and hs.max() < 3.5
+	return hs.min() > 0.12 and hs.max() - hs.min() < 0.35
 
 
 static func _ground(p: Vector2, dir: Vector2) -> float:

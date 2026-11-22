@@ -59,7 +59,7 @@ var _rmb := false
 func _ready() -> void:
 	camera = Camera3D.new()
 	camera.fov = FOV
-	camera.far = 160.0
+	camera.far = 450.0   # Herm is about 480 x 575 m: the far end of the island in view
 	add_child(camera)
 	camera.make_current()
 	if target != null:

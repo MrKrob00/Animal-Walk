@@ -5,8 +5,8 @@ extends MeshInstance3D
 ## (negative under the land) is baked into UV.x, so the foam line falls exactly on the waterline
 ## even though the grid is coarse.
 
-const SIZE := 420.0
-const CELLS := 168   # 2.5 m: fine enough for a smooth foam line
+const STEP := 4.0           ## metres per cell over the island's grid (the foam line follows it)
+const FAR := 1500.0        ## the open sea reaches this far from the island, as a frame of big quads
 const DEPTH_FULL := 2.4    ## metres of water that count as "deep" (the shader: foam under 3 cm)
 
 
@@ -22,26 +22,31 @@ static func depth_at(x: float, z: float) -> float:
 	return clampf(-Terrain.height(x, z) / DEPTH_FULL, 0.0, 1.0)
 
 
+## A STEP grid over the island's grid (only cells with water in them; UV.y = 1 lets the swell move
+## it, 0 on its outer edge) and round it a frame of four big flat quads out to FAR (deep, still):
+## the edge vertices do not move, so no crack opens between the two.
 static func build_mesh() -> ArrayMesh:
 	var verts := PackedVector3Array()
 	var uvs := PackedVector2Array()
 	var norms := PackedVector3Array()
 	var idx := PackedInt32Array()
-	var step := SIZE / CELLS
-	var half := SIZE * 0.5
-	var w := CELLS + 1
+	var r := Terrain.bounds()
+	var nx := ceili(r.size.x / STEP)
+	var nz := ceili(r.size.y / STEP)
+	var w := nx + 1
 	var heights := PackedFloat32Array()
-	for j in range(w):
-		for i in range(w):
-			var x := -half + i * step
-			var z := -half + j * step
-			var h := Terrain.height(x, z) if absf(x) < Terrain.SIZE * 0.5 and absf(z) < Terrain.SIZE * 0.5 else -3.0
+	for j in range(nz + 1):
+		for i in range(nx + 1):
+			var x := r.position.x + i * STEP
+			var z := r.position.y + j * STEP
+			var h := Terrain.height(x, z)
+			var edge := i == 0 or j == 0 or i == nx or j == nz
 			heights.append(h)
 			verts.append(Vector3(x, 0, z))
 			norms.append(Vector3.UP)
-			uvs.append(Vector2(-h, 0.0))
-	for j in range(CELLS):
-		for i in range(CELLS):
+			uvs.append(Vector2(-h, 0.0 if edge else 1.0))
+	for j in range(nz):
+		for i in range(nx):
 			var p00 := j * w + i
 			var p10 := p00 + 1
 			var p01 := p00 + w
@@ -50,6 +55,23 @@ static func build_mesh() -> ArrayMesh:
 			if lowest > 0.15:
 				continue   # all ground here: no water to draw
 			idx.append_array([p00, p10, p01, p10, p11, p01])
+	# The frame: four quads from the grid's edge out to FAR.
+	var x0 := r.position.x
+	var z0 := r.position.y
+	var x1 := r.position.x + nx * STEP
+	var z1 := r.position.y + nz * STEP
+	var ox := r.get_center().x
+	var oz := r.get_center().y
+	var rects := [
+		[ox - FAR, oz - FAR, ox + FAR, z0], [ox - FAR, z1, ox + FAR, oz + FAR],
+		[ox - FAR, z0, x0, z1], [x1, z0, ox + FAR, z1]]
+	for q in rects:
+		var b := verts.size()
+		for c in [[q[0], q[1]], [q[2], q[1]], [q[0], q[3]], [q[2], q[3]]]:
+			verts.append(Vector3(c[0], 0, c[1]))
+			norms.append(Vector3.UP)
+			uvs.append(Vector2(-Terrain.DEEP, 0.0))
+		idx.append_array([b, b + 1, b + 2, b + 1, b + 3, b + 2])
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts

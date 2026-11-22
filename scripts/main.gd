@@ -47,11 +47,9 @@ var _time := 0.0
 func _ready() -> void:
 	_setup_input()
 	_build_light()
-	var ground := MeshInstance3D.new()
-	ground.name = "Ground"
-	ground.mesh = Terrain.build_mesh()
-	ground.material_override = PaperMesh.material()
-	add_child(ground)
+	for piece in Terrain.build_meshes():
+		add_child(piece)
+	Trails.build(self, obstacles)   # Herm's paths, walls and fences (OpenStreetMap)
 	passages = LowPassages.place()
 	WorldBuilder.populate(self, obstacles, 20261120, LowPassages.reserved(passages))
 	LowPassages.build(self, obstacles, passages)
@@ -72,7 +70,7 @@ func _ready() -> void:
 	tofu.name = "Tofu"
 	tofu.setup(Actor.TOFU)
 	tofu.world = self
-	var start := WorldBuilder.clearing_center()   # on the north beach, facing the sea
+	var start := WorldBuilder.clearing_center()   # Herm Harbour, where the boat comes in
 	tofu.position = Vector3(start.x, Terrain.height(start.x, start.y), start.y)
 	add_child(tofu)
 

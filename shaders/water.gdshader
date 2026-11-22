@@ -16,7 +16,7 @@ varying vec3 wpos;
 void vertex() {
 	depth_m = UV.x;
 	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	VERTEX.y += (sin(TIME * 1.1 + wpos.x * 0.35) + sin(TIME * 0.8 + wpos.z * 0.28)) * swell * clamp(depth_m / depth_full + 0.3, 0.0, 1.3);
+	VERTEX.y += (sin(TIME * 1.1 + wpos.x * 0.35) + sin(TIME * 0.8 + wpos.z * 0.28)) * swell * clamp(depth_m / depth_full + 0.3, 0.0, 1.3) * UV.y;   // UV.y: 0 on the edges that meet the still frame
 }
 
 void fragment() {
