@@ -17,7 +17,7 @@ const NEAR_START := 10.0   ## one lies this far from the start, so the player me
 ## Where the passages lie: [{"c": Vector2 centre, "dir": Vector2 along the trunk, "y": float}].
 ## On the island's meadows, woods and scrub, off its paths (a fallen trunk to find, not one that
 ## blocks the way); the first near the start, so the player meets it early.
-static func place(seed_value := 4242) -> Array:
+static func place(seed_value := 4242, keep_off: Array = []) -> Array:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
 	var out := []
@@ -38,6 +38,12 @@ static func place(seed_value := 4242) -> Array:
 		if not (k == 1 or k == 3 or k == 4) or Terrain.shore_distance(p.x, p.y) < 4.0:
 			continue
 		if p.distance_to(start) < WorldBuilder.CLEARING_RADIUS + 2.0 or Terrain.near_path(p.x, p.y, SPAN * 0.5 + 0.8) or not _fits(p, dir, out):
+			continue
+		var blocked := false
+		for k_ in keep_off:
+			if p.distance_to(Vector2(k_.x, k_.y)) < k_.z + SPAN:
+				blocked = true
+		if blocked:
 			continue
 		out.append({"c": p, "dir": dir, "y": _ground(p, dir)})
 	return out

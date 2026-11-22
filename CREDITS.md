@@ -21,6 +21,14 @@ All models are used under Creative Commons Attribution 4.0 (CC BY 4.0): https://
 
 The army crawl (`assets/anim/crawl.res`) is made for this project on the Universal Animation Library's skeleton.
 
+## Buildings and props
+
+| Pack | Author | Source | Licence |
+|---|---|---|---|
+| KayKit Medieval Hexagon Pack (houses, tavern, church, market, well, mine, tent, barrels, crates, stone) | Kay Lousberg | https://github.com/KayKit-Game-Assets/KayKit-Medieval-Hexagon-Pack-1.0 | CC0 1.0 |
+| KayKit Restaurant Bits (tables, stools) | Kay Lousberg | https://github.com/KayKit-Game-Assets/KayKit-Restaurant-Bits-1.0 | CC0 1.0 |
+| KayKit Halloween Bits (lantern, bench, plaque, lamp post) | Kay Lousberg | https://github.com/KayKit-Game-Assets/KayKit-Halloween-Bits-1.0 | CC0 1.0 |
+
 ## Map data
 
 | Data | Author | Source | Licence |

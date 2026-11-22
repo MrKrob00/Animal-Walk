@@ -192,6 +192,51 @@ static func _chunk(i0: int, j0: int, i1: int, j1: int, nx: int, step: float, x0:
 	return mi
 
 
+## Can a walker get to (x, z) from the start, over land or ankle-deep water? (The islets cannot be
+## reached: the sea between is deep.) A flood over the grid from the start, made once.
+static var _reach := PackedByteArray()
+
+static func reachable(x: float, z: float) -> bool:
+	var m: Dictionary = data().meta
+	var nx: int = int(m.nx)
+	var nz: int = int(m.nz)
+	if _reach.is_empty():
+		_reach.resize(nx * nz)
+		var s := WorldBuilder.clearing_center()
+		var start := roundi((s.y - float(m.z0)) / float(m.cell)) * nx + roundi((s.x - float(m.x0)) / float(m.cell))
+		var limit := -wade_distance()
+		var sh := data().shore
+		var todo := PackedInt32Array([start])
+		_reach[start] = 1
+		while not todo.is_empty():
+			var i := todo[todo.size() - 1]
+			todo.resize(todo.size() - 1)
+			var ix := i % nx
+			for j in [i - 1, i + 1, i - nx, i + nx]:
+				if j < 0 or j >= nx * nz or (j == i - 1 and ix == 0) or (j == i + 1 and ix == nx - 1):
+					continue
+				if _reach[j] == 0 and sh[j] >= limit:
+					_reach[j] = 1
+					todo.append(j)
+	var ix := roundi((x - float(m.x0)) / float(m.cell))
+	var iz := roundi((z - float(m.z0)) / float(m.cell))
+	if ix < 0 or iz < 0 or ix >= nx or iz >= nz:
+		return false
+	return _reach[iz * nx + ix] == 1
+
+
+## The nearest point to `p` a walker can stand on dry (at least `inland` metres from the water),
+## within `reach` metres; INF when there is none (an islet's).
+static func nearest_reachable(p: Vector2, inland := 2.0, reach := 40.0) -> Vector2:
+	for r in range(0, int(reach), 2):
+		var n := maxi(1, r * 2)
+		for a in n:
+			var q := p + Vector2.from_angle(a * TAU / n) * r
+			if reachable(q.x, q.y) and shore_distance(q.x, q.y) >= inland:
+				return q
+	return Vector2.INF
+
+
 ## Where the paths run (for keeping trees, rocks and trunks off them): segments in a 8 m grid.
 static var _path_grid := {}
 

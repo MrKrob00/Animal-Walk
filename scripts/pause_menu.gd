@@ -1,9 +1,10 @@
 class_name PauseMenu
 extends CanvasLayer
-## The pause menu (the player asked): the game stops under it; "Продолжить" goes on, "Костюмы"
-## opens the dressing room (DressingRoom). Esc / P closes it.
+## The pause menu (the player asked): the game stops under it; "Продолжить" goes on, "Карта" shows
+## the map (MapScreen), "Костюмы" opens the dressing room (DressingRoom). Esc / P closes it.
 
 signal costumes
+signal map
 signal closed
 
 const PANEL := Color("#f4ede2")
@@ -30,6 +31,7 @@ func _ready() -> void:
 	title.add_theme_color_override("font_color", Color.WHITE)
 	box.add_child(title)
 	box.add_child(button("Продолжить", close))
+	box.add_child(button("Карта", func(): map.emit()))
 	box.add_child(button("Костюмы", func(): costumes.emit()))
 
 

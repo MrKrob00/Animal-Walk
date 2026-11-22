@@ -12,6 +12,11 @@ const HAMMER_TIME := 0.6   ## the bunny stands still while she hammers, seconds
 
 var obstacles := Obstacles.new()
 var passages := []   ## low places to crawl under (LowPassages)
+var finds := []      ## Herm's named places to find (Landmarks): [{"name", "kind", "pos", "has"}]
+var explore: Exploration   ## what has been walked and found (the map)
+var map_screen: MapScreen
+var _explore_t := 0.0
+var _explore_dirty := false
 var _passage_caps := []
 const CRAWL_SPEED := 0.7   ## m/s, crawling, for a character without crawl clips
 var splash: Puffs              ## water drops when a paw lands in the sea
@@ -50,8 +55,12 @@ func _ready() -> void:
 	for piece in Terrain.build_meshes():
 		add_child(piece)
 	Trails.build(self, obstacles)   # Herm's paths, walls and fences (OpenStreetMap)
-	passages = LowPassages.place()
-	WorldBuilder.populate(self, obstacles, 20261120, LowPassages.reserved(passages))
+	var marks := Landmarks.build(self, obstacles)   # what stands at Herm's named places
+	finds = marks.finds
+	explore = Exploration.new(finds)
+	explore.found.connect(func(f): puffs.puff(Vector3(f.pos.x, Terrain.height(f.pos.x, f.pos.y), f.pos.y), 2.0))   # found: a puff there
+	passages = LowPassages.place(4242, marks.reserved)
+	WorldBuilder.populate(self, obstacles, 20261120, LowPassages.reserved(passages) + marks.reserved)
 	LowPassages.build(self, obstacles, passages)
 	_passage_caps = LowPassages.capsules(passages)
 	var sea := Water.new()
@@ -157,13 +166,19 @@ func pause() -> void:
 	arm_stick.release()
 	camera_rig.release()
 	get_tree().paused = true
+	if explore != null:
+		explore.save_state()
 	pause_menu = PauseMenu.new()
 	add_child(pause_menu)
 	pause_menu.closed.connect(resume)
 	pause_menu.costumes.connect(open_dressing_room)
+	pause_menu.map.connect(open_map)
 
 
 func resume() -> void:
+	if map_screen != null:
+		map_screen.queue_free()
+		map_screen = null
 	if pause_menu != null:
 		pause_menu.queue_free()
 		pause_menu = null
@@ -174,6 +189,26 @@ func resume() -> void:
 	arm_stick.release()
 	camera_rig.release()
 	get_tree().paused = false
+
+
+## The map over the pause menu; "Назад" goes back to the menu.
+func open_map() -> void:
+	if map_screen != null:
+		return
+	pause_menu.visible = false
+	var walkers := [
+		[Vector2(bunny.position.x, bunny.position.z), Vector2(bunny.global_basis.z.x, bunny.global_basis.z.z).normalized(), MapView.BUNNY],
+		[Vector2(tofu.position.x, tofu.position.z), Vector2(tofu.global_basis.z.x, tofu.global_basis.z.z).normalized(), MapView.TOFU]]
+	map_screen = MapScreen.new(explore, walkers)
+	add_child(map_screen)
+	map_screen.closed.connect(_map_closed)
+
+
+func _map_closed() -> void:
+	map_screen.queue_free()
+	map_screen = null
+	if pause_menu != null:
+		pause_menu.visible = true
 
 
 ## The dressing room over the pause menu; "Готово" puts the choice on the bunny and goes back
@@ -284,6 +319,14 @@ func read_input() -> Vector2:
 
 func _physics_process(delta: float) -> void:
 	_time += delta
+	_explore_t += delta
+	if _explore_t > 0.25 and explore != null:
+		_explore_t = 0.0
+		if explore.visit([Vector2(bunny.position.x, bunny.position.z), Vector2(tofu.position.x, tofu.position.z)]):
+			_explore_dirty = true
+	if _explore_dirty and fmod(_time, 10.0) < delta:
+		explore.save_state()   # kept every 10 s when something new was seen
+		_explore_dirty = false
 	var v := read_input()
 	var running := forced_run or Input.is_action_pressed("run") or v.length() > 0.92
 	if camera_rig != null:
